@@ -19,12 +19,15 @@ final class AppModel {
     private(set) var savedContent: String = ""
     /// One-shot message for failed file operations, shown as an alert.
     var operationError: String?
+    /// Whether a key is in the keychain — drives the "add your key" banner.
+    private(set) var hasAPIKey = false
 
     init() {
         let settings = SettingsStore()
         self.settings = settings
         self.runner = RunCoordinator(settings: settings)
         openHistoryStore()
+        refreshAPIKeyStatus()
         refresh()
 
         runner.onHistoryChanged = { [weak self] in
@@ -36,6 +39,10 @@ final class AppModel {
         }
         hotkeys.register()
         self.hotkeys = hotkeys
+    }
+
+    func refreshAPIKeyStatus() {
+        hasAPIKey = KeychainService.loadAPIKey() != nil
     }
 
     // MARK: - History

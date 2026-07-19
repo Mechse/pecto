@@ -9,6 +9,9 @@ struct MainWindowView: View {
         } detail: {
             TaskEditorView(model: model)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            statusArea
+        }
         .alert(
             "That didn't work",
             isPresented: Binding(
@@ -19,6 +22,69 @@ struct MainWindowView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(model.operationError ?? "")
+        }
+    }
+
+    /// Run feedback lives in the window too — notifications can be
+    /// unavailable for unsigned dev builds, and the app must never look dead.
+    @ViewBuilder
+    private var statusArea: some View {
+        VStack(spacing: 0) {
+            if let outcome = model.runner.lastOutcome {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: icon(for: outcome.kind))
+                        .foregroundStyle(color(for: outcome.kind))
+                    Text(outcome.message)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        model.runner.clearOutcome()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+
+            if !model.hasAPIKey {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "key.fill")
+                        .foregroundStyle(.yellow)
+                    Text("Add your Anthropic API key to run tasks.")
+                    Spacer()
+                    SettingsLink {
+                        Text("Open Settings…")
+                    }
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+    }
+
+    private func icon(for kind: RunOutcome.Kind) -> String {
+        switch kind {
+        case .success: "checkmark.circle.fill"
+        case .failure: "xmark.circle.fill"
+        case .refusal: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func color(for kind: RunOutcome.Kind) -> Color {
+        switch kind {
+        case .success: .green
+        case .failure: .red
+        case .refusal: .yellow
         }
     }
 }

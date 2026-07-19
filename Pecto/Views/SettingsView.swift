@@ -1,11 +1,13 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 struct SettingsView: View {
     let model: AppModel
     @State private var apiKeyDraft = ""
     @State private var hasStoredKey = false
     @State private var didJustSave = false
+    @State private var notificationsAuthorized: Bool?
 
     var body: some View {
         Form {
@@ -30,6 +32,7 @@ struct SettingsView: View {
                         apiKeyDraft = ""
                         hasStoredKey = false
                         didJustSave = false
+                        model.refreshAPIKeyStatus()
                     }
                 }
             }
@@ -47,12 +50,34 @@ struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Notifications") {
+                switch notificationsAuthorized {
+                case .some(true):
+                    Label("Run results are announced as notifications.", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                case .some(false):
+                    Label(
+                        "Notifications are off — allow Pecto in System Settings → Notifications. Run results always show at the bottom of the Pecto window too.",
+                        systemImage: "bell.slash"
+                    )
+                    .foregroundStyle(.secondary)
+                case .none:
+                    Label("Checking notification status…", systemImage: "bell")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.callout)
         }
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             hasStoredKey = KeychainService.loadAPIKey() != nil
+        }
+        .task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            notificationsAuthorized = settings.authorizationStatus == .authorized
         }
     }
 
@@ -61,6 +86,7 @@ struct SettingsView: View {
         hasStoredKey = KeychainService.loadAPIKey() != nil
         didJustSave = hasStoredKey
         apiKeyDraft = ""
+        model.refreshAPIKeyStatus()
     }
 
     private func pickWorkspaceFolder() {
