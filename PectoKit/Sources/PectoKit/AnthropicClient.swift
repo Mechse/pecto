@@ -1,0 +1,121 @@
+import Foundation
+
+/// A run failure with a message fit for a notification.
+public struct RunError: LocalizedError, Equatable, Sendable {
+    public let message: String
+
+    public init(_ message: String) {
+        self.message = message
+    }
+
+    public var errorDescription: String? { message }
+}
+
+public struct MessagesRequest: Encodable, Sendable {
+    public let model: String
+    public let maxTokens: Int
+    public let system: String
+    public let messages: [ChatMessage]
+
+    public struct ChatMessage: Encodable, Sendable {
+        public let role: String
+        public let content: String
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case maxTokens = "max_tokens"
+        case system
+        case messages
+    }
+}
+
+public struct MessagesResponse: Decodable, Sendable {
+    public let content: [ContentBlock]
+    public let stopReason: String?
+
+    public struct ContentBlock: Decodable, Sendable {
+        public let type: String
+        public let text: String?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case content
+        case stopReason = "stop_reason"
+    }
+
+    public var text: String {
+        content.compactMap { $0.type == "text" ? $0.text : nil }.joined()
+    }
+}
+
+struct APIErrorEnvelope: Decodable {
+    let error: Detail
+
+    struct Detail: Decodable {
+        let type: String
+        let message: String
+    }
+}
+
+/// Direct, non-streaming call to the Anthropic Messages API — no SDK.
+public struct AnthropicClient: Sendable {
+    public static let defaultModel = "claude-sonnet-4-5"
+    public static let maxTokens = 8192
+
+    let session: URLSession
+    let baseURL: URL
+
+    public init(
+        session: URLSession = .shared,
+        baseURL: URL = URL(string: "https://api.anthropic.com")!
+    ) {
+        self.session = session
+        self.baseURL = baseURL
+    }
+
+    public func run(
+        prompt: RunPrompt,
+        apiKey: String,
+        model: String = AnthropicClient.defaultModel
+    ) async throws -> String {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(
+            MessagesRequest(
+                model: model,
+                maxTokens: Self.maxTokens,
+                system: prompt.system,
+                messages: [.init(role: "user", content: prompt.user)]
+            )
+        )
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw RunError("Couldn't reach the Anthropic API. Check your internet connection and try again.")
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            if status == 401 {
+                throw RunError("Anthropic rejected the API key. Check it in Pecto's Settings.")
+            }
+            if let envelope = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data) {
+                throw RunError(envelope.error.message)
+            }
+            throw RunError("The Anthropic API returned an error (HTTP \(status)).")
+        }
+
+        guard let decoded = try? JSONDecoder().decode(MessagesResponse.self, from: data) else {
+            throw RunError("The Anthropic API sent a response Pecto couldn't read.")
+        }
+        return decoded.text
+    }
+}

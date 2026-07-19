@@ -1,0 +1,37 @@
+name: Pecto
+options:
+  bundleIdPrefix: com.pecto
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  PectoKit:
+    path: PectoKit
+
+targets:
+  Pecto:
+    type: application
+    platform: macOS
+    sources: [Pecto]
+    dependencies:
+      - package: PectoKit
+    info:
+      path: Pecto/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: Pecto
+        NSSupportsAutomaticTermination: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pecto.app
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        SWIFT_VERSION: "6.0"
+
+schemes:
+  Pecto:
+    build:
+      targets:
+        Pecto: all
