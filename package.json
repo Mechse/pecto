@@ -1,0 +1,22 @@
+{
+  "name": "pecto",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:offline": "PECTO_OFFLINE=1 bun run --filter '*' dev",
+    "dev:server": "bun run --cwd apps/server dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "start": "bun run --cwd apps/server start",
+    "test": "bun test",
+    "typecheck": "tsc -b && bun run --cwd apps/web typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.23",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@pecto/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@pecto/core": "workspace:*",
+    "@pecto/runner": "workspace:*",
+    "hono": "^4.7.0"
+  }
+}
