@@ -25,12 +25,18 @@ struct TaskListView: View {
             }
         }
         .toolbar {
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Open Settings (⌘,)")
+
             Button {
                 newTaskName = ""
                 isCreating = true
             } label: {
                 Label("New Task", systemImage: "plus")
             }
+            .help("New task")
         }
         .alert("New task", isPresented: $isCreating) {
             TextField("improve-email", text: $newTaskName)
