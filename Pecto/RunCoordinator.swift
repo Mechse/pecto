@@ -16,6 +16,15 @@ struct RunOutcome: Equatable {
     let at: Date
 }
 
+/// A run that stopped pre-flight because the task wants the clipboard but it
+/// was empty. Held until the user confirms (re-trigger or notch button),
+/// cancels, or the timeout clears it.
+struct PendingConfirmation: Equatable {
+    let taskPath: String
+    let taskName: String
+    let requestedAt: Date
+}
+
 /// Executes a shortcut-slot run: clipboard in → Anthropic → clipboard out,
 /// with a notification either way. The clipboard is only touched on success.
 @MainActor
@@ -30,6 +39,9 @@ final class RunCoordinator {
 
     private(set) var runningPaths: Set<String> = []
     private(set) var lastOutcome: RunOutcome?
+    private(set) var pendingConfirmation: PendingConfirmation?
+    private var pendingExpiryTask: Task<Void, Never>?
+    private static let confirmationTimeout: Duration = .seconds(8)
 
     var isRunning: Bool { !runningPaths.isEmpty }
 
@@ -61,8 +73,44 @@ final class RunCoordinator {
         run(path: path)
     }
 
-    /// Shared by shortcut slots and the editor's Run button.
+    /// Shared by shortcut slots and the editor's Run button. Re-triggering
+    /// the task that is awaiting an empty-clipboard confirmation IS the
+    /// confirmation; triggering any other task cancels the pending one.
     func run(path: String) {
+        let confirmed = pendingConfirmation?.taskPath == path
+        clearPending()
+        run(path: path, allowEmptyClipboard: confirmed)
+    }
+
+    /// Confirms the pending run from the notch's button. Re-reads the
+    /// clipboard: whatever is on it now is used, even if still empty.
+    func confirmPending() {
+        guard let pending = pendingConfirmation else { return }
+        clearPending()
+        run(path: pending.taskPath, allowEmptyClipboard: true)
+    }
+
+    func cancelPending() {
+        clearPending()
+    }
+
+    private func clearPending() {
+        pendingExpiryTask?.cancel()
+        pendingExpiryTask = nil
+        pendingConfirmation = nil
+    }
+
+    private func beginPendingConfirmation(path: String, name: String) {
+        pendingExpiryTask?.cancel()
+        pendingConfirmation = PendingConfirmation(taskPath: path, taskName: name, requestedAt: Date())
+        pendingExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.confirmationTimeout)
+            guard !Task.isCancelled else { return }
+            self?.clearPending()
+        }
+    }
+
+    private func run(path: String, allowEmptyClipboard: Bool) {
         // Ignore re-triggers of a task that is already running (key repeat,
         // impatient fingers). Other tasks may run in parallel.
         guard !runningPaths.contains(path) else { return }
@@ -92,27 +140,25 @@ final class RunCoordinator {
         case .runnable(let needsClipboard):
             if needsClipboard {
                 let clipboard = ClipboardService.readText() ?? ""
-                guard !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    report(
-                        path: path,
-                        kind: .refusal,
-                        title: "\(name) needs your clipboard",
-                        body: "Copy some text first, then press the shortcut again."
-                    )
+                let isEmpty = clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if isEmpty && !allowEmptyClipboard {
+                    // With the notch indicator on, warn there and wait for a
+                    // confirmation instead of refusing outright. Without it
+                    // there is no surface to confirm from, so keep the refusal.
+                    guard settings.showRunningIndicator else {
+                        report(
+                            path: path,
+                            kind: .refusal,
+                            title: "\(name) needs your clipboard",
+                            body: "Copy some text first, then press the shortcut again."
+                        )
+                        return
+                    }
+                    beginPendingConfirmation(path: path, name: name)
                     return
                 }
                 values["clipboard"] = clipboard
             }
-        }
-
-        guard let apiKey = KeychainService.loadAPIKey() else {
-            report(
-                path: path,
-                kind: .refusal,
-                title: "\(name) can't run yet",
-                body: "Add your Anthropic API key in Pecto's Settings first."
-            )
-            return
         }
 
         let prompt = buildPrompt(
@@ -123,6 +169,19 @@ final class RunCoordinator {
         let startedAt = Self.nowMilliseconds()
         runningPaths.insert(path)
         Task {
+            // The keychain read happens off the main actor: it can block on
+            // a permission prompt (fresh dev signatures re-ask), and that
+            // must not freeze the app mid-run.
+            guard let apiKey = await Task.detached(operation: { KeychainService.loadAPIKey() }).value else {
+                report(
+                    path: path,
+                    kind: .refusal,
+                    title: "\(name) can't run yet",
+                    body: "Add your Anthropic API key in Pecto's Settings first."
+                )
+                runningPaths.remove(path)
+                return
+            }
             do {
                 let output = try await client.run(prompt: prompt, apiKey: apiKey)
                 record(path: path, startedAt: startedAt, status: .succeeded, output: output.text, error: nil, usage: output.usage, inputs: values)

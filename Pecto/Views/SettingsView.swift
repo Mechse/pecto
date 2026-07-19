@@ -51,6 +51,19 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Running indicator") {
+                Toggle(
+                    "Show a pill at the top of the screen while a task runs",
+                    isOn: Binding(
+                        get: { model.settings.showRunningIndicator },
+                        set: { model.settings.setShowRunningIndicator($0) }
+                    )
+                )
+                Text("On MacBooks with a notch it hugs the notch; elsewhere it floats below the menu bar. It flashes the result when a run finishes.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Notifications") {
                 switch notificationsAuthorized {
                 case .some(true):

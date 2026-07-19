@@ -9,6 +9,7 @@ final class AppModel {
     let settings: SettingsStore
     let runner: RunCoordinator
     private var hotkeys: HotkeyManager?
+    private var indicator: NotchIndicatorController?
     private(set) var history: HistoryStore?
     /// Bumped on every history write so the pane recomputes its lists.
     private(set) var historyVersion = 0
@@ -39,10 +40,26 @@ final class AppModel {
         }
         hotkeys.register()
         self.hotkeys = hotkeys
+
+        indicator = NotchIndicatorController(
+            runner: runner,
+            settings: settings,
+            nameForPath: { [weak self] path in
+                self?.tasks.first { $0.path == path }?.name ?? path
+            }
+        )
     }
 
+    /// Off the main actor: reading the keychain can block on a permission
+    /// prompt (every fresh dev signature re-asks), and this runs during
+    /// launch — a synchronous read would freeze the app before the menu bar
+    /// icon or hotkeys exist.
     func refreshAPIKeyStatus() {
-        hasAPIKey = KeychainService.loadAPIKey() != nil
+        Task.detached(priority: .utility) { [weak self] in
+            let hasKey = KeychainService.loadAPIKey() != nil
+            guard let self else { return }
+            await MainActor.run { self.hasAPIKey = hasKey }
+        }
     }
 
     // MARK: - History

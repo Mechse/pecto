@@ -27,6 +27,13 @@ import Testing
         #expect(filled == "Improve: my draft")
     }
 
+    /// A confirmed empty-clipboard run substitutes empty text, not the
+    /// placeholder verbatim.
+    @Test func fillsEmptyValues() {
+        let filled = fillPlaceholders("Improve: {{clipboard}}", values: ["clipboard": ""])
+        #expect(filled == "Improve: ")
+    }
+
     @Test func fillsWhitespaceVariants() {
         let filled = fillPlaceholders("Improve: {{ clipboard }}", values: ["clipboard": "my draft"])
         #expect(filled == "Improve: my draft")

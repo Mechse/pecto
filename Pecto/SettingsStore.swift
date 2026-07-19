@@ -12,13 +12,17 @@ final class SettingsStore {
     private static let workspacePathKey = "workspacePath"
     private static let slotAssignmentsKey = "slotAssignments"
     private static let didSeedWorkspaceKey = "didSeedWorkspace"
+    private static let showRunningIndicatorKey = "showRunningIndicator"
 
     private(set) var workspacePath: String
     /// Slot number (1–9) → task filename.
     private(set) var slotAssignments: [Int: String]
+    /// Whether the notch/top-of-screen pill appears while a task runs.
+    private(set) var showRunningIndicator: Bool
 
     init() {
         workspacePath = defaults.string(forKey: Self.workspacePathKey) ?? ""
+        showRunningIndicator = defaults.object(forKey: Self.showRunningIndicatorKey) as? Bool ?? true
         let stored = defaults.dictionary(forKey: Self.slotAssignmentsKey) as? [String: String] ?? [:]
         slotAssignments = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
             Int(key).map { ($0, value) }
@@ -60,6 +64,13 @@ final class SettingsStore {
             }
             defaults.set(true, forKey: Self.didSeedWorkspaceKey)
         }
+    }
+
+    // MARK: - Running indicator
+
+    func setShowRunningIndicator(_ enabled: Bool) {
+        showRunningIndicator = enabled
+        defaults.set(enabled, forKey: Self.showRunningIndicatorKey)
     }
 
     // MARK: - Slot assignments
