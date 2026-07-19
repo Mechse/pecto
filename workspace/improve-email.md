@@ -7,4 +7,4 @@ Improve the email draft below. Fix grammar and spelling, tighten the wording, an
 
 Reply with only the improved email.
 
-{{email_draft}}
+{{clipboard}}
