@@ -43,6 +43,21 @@ struct TaskEditorView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                if model.runner.runningPaths.contains(task.path) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .help("Running…")
+                } else {
+                    Button {
+                        model.runSelectedTask()
+                    } label: {
+                        Label("Run", systemImage: "play.fill")
+                    }
+                    .keyboardShortcut("r")
+                    .disabled(model.draftRunProblem != nil)
+                    .help(model.draftRunProblem ?? "Save and run this task on your clipboard (⌘R)")
+                }
+
                 SlotPickerView(model: model, task: task)
 
                 Button("Save") { model.save() }

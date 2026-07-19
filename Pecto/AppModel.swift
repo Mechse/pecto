@@ -125,6 +125,33 @@ final class AppModel {
         }
     }
 
+    /// Why the draft can't run right now (parse problem or a non-clipboard
+    /// placeholder) — nil when it's runnable. Judged on the draft because the
+    /// Run button saves it before running.
+    var draftRunProblem: String? {
+        guard selectedPath != nil else { return nil }
+        let task: ParsedTask
+        do {
+            task = try parseTask(draft)
+        } catch let error as TaskParseError {
+            return error.message
+        } catch {
+            return "This task could not be read."
+        }
+        if case .notRunnable(let reason) = slotRunnability(instructions: task.instructions) {
+            return reason
+        }
+        return nil
+    }
+
+    /// The editor's Run button: persist what's on screen, then run it through
+    /// the same pipeline as a shortcut (clipboard in → clipboard out).
+    func runSelectedTask() {
+        guard let selectedPath, draftRunProblem == nil else { return }
+        save()
+        runner.run(path: selectedPath)
+    }
+
     func save() {
         guard let selectedPath, isDirty else { return }
         run {

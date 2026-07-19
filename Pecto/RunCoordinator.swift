@@ -14,19 +14,15 @@ final class RunCoordinator {
     var history: HistoryStore?
     var onHistoryChanged: (() -> Void)?
 
-    private(set) var runningSlots: Set<Int> = []
+    private(set) var runningPaths: Set<String> = []
 
-    var isRunning: Bool { !runningSlots.isEmpty }
+    var isRunning: Bool { !runningPaths.isEmpty }
 
     init(settings: SettingsStore) {
         self.settings = settings
     }
 
     func fire(slot: Int) {
-        // Ignore re-triggers of a slot that is already running (key repeat,
-        // impatient fingers). Other slots may run in parallel.
-        guard !runningSlots.contains(slot) else { return }
-
         guard let path = settings.assignment(for: slot) else {
             NotificationService.post(
                 title: "Nothing on ⌃⌥\(slot)",
@@ -34,6 +30,14 @@ final class RunCoordinator {
             )
             return
         }
+        run(path: path)
+    }
+
+    /// Shared by shortcut slots and the editor's Run button.
+    func run(path: String) {
+        // Ignore re-triggers of a task that is already running (key repeat,
+        // impatient fingers). Other tasks may run in parallel.
+        guard !runningPaths.contains(path) else { return }
 
         let task: ParsedTask
         do {
@@ -83,7 +87,7 @@ final class RunCoordinator {
         )
 
         let startedAt = Self.nowMilliseconds()
-        runningSlots.insert(slot)
+        runningPaths.insert(path)
         Task {
             do {
                 let output = try await client.run(prompt: prompt, apiKey: apiKey)
@@ -108,7 +112,7 @@ final class RunCoordinator {
                     body: "\(reason) Your clipboard is unchanged."
                 )
             }
-            runningSlots.remove(slot)
+            runningPaths.remove(path)
         }
     }
 

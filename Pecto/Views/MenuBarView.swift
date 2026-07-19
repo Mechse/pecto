@@ -11,7 +11,7 @@ struct MenuBarView: View {
             Text("No shortcuts assigned yet")
         } else {
             ForEach(assignments, id: \.key) { slot, path in
-                let running = model.runner.runningSlots.contains(slot)
+                let running = model.runner.runningPaths.contains(path)
                 Button {
                     model.runner.fire(slot: slot)
                 } label: {
