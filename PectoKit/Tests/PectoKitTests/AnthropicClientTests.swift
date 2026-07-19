@@ -58,7 +58,7 @@ private func makeClient() -> AnthropicClient {
 
 private let prompt = RunPrompt(system: "You are executing the task.", user: "Improve this: my draft")
 
-private func runErrorMessage(_ body: () async throws -> String) async -> String? {
+private func runErrorMessage<T>(_ body: () async throws -> T) async -> String? {
     do {
         _ = try await body()
         return nil
@@ -88,12 +88,21 @@ private func runErrorMessage(_ body: () async throws -> String) async -> String?
             #expect(messages?[0]["content"] as? String == "Improve this: my draft")
 
             let response = """
-            {"content": [{"type": "text", "text": "Part one. "}, {"type": "tool_use", "id": "x"}, {"type": "text", "text": "Part two."}], "stop_reason": "end_turn"}
+            {"content": [{"type": "text", "text": "Part one. "}, {"type": "tool_use", "id": "x"}, {"type": "text", "text": "Part two."}], "stop_reason": "end_turn", "usage": {"input_tokens": 89, "output_tokens": 35}}
             """
             return (200, Data(response.utf8))
         }
-        let text = try await makeClient().run(prompt: prompt, apiKey: "sk-test")
-        #expect(text == "Part one. Part two.")
+        let output = try await makeClient().run(prompt: prompt, apiKey: "sk-test")
+        #expect(output.text == "Part one. Part two.")
+        #expect(output.usage == RunUsage(inputTokens: 89, outputTokens: 35))
+    }
+
+    @Test func toleratesMissingUsage() async throws {
+        MockURLProtocol.handler = { _, _ in
+            (200, Data(#"{"content": [{"type": "text", "text": "hi"}]}"#.utf8))
+        }
+        let output = try await makeClient().run(prompt: prompt, apiKey: "sk-test")
+        #expect(output.usage == RunUsage(inputTokens: nil, outputTokens: nil))
     }
 
     @Test func surfacesAPIErrorMessages() async {

@@ -33,19 +33,51 @@ public struct MessagesRequest: Encodable, Sendable {
 public struct MessagesResponse: Decodable, Sendable {
     public let content: [ContentBlock]
     public let stopReason: String?
+    public let usage: Usage?
 
     public struct ContentBlock: Decodable, Sendable {
         public let type: String
         public let text: String?
     }
 
+    public struct Usage: Decodable, Sendable {
+        public let inputTokens: Int?
+        public let outputTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case inputTokens = "input_tokens"
+            case outputTokens = "output_tokens"
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case content
         case stopReason = "stop_reason"
+        case usage
     }
 
     public var text: String {
         content.compactMap { $0.type == "text" ? $0.text : nil }.joined()
+    }
+}
+
+public struct RunUsage: Equatable, Sendable {
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+
+    public init(inputTokens: Int?, outputTokens: Int?) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+    }
+}
+
+public struct RunOutput: Equatable, Sendable {
+    public let text: String
+    public let usage: RunUsage
+
+    public init(text: String, usage: RunUsage) {
+        self.text = text
+        self.usage = usage
     }
 }
 
@@ -78,7 +110,7 @@ public struct AnthropicClient: Sendable {
         prompt: RunPrompt,
         apiKey: String,
         model: String = AnthropicClient.defaultModel
-    ) async throws -> String {
+    ) async throws -> RunOutput {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
@@ -116,6 +148,12 @@ public struct AnthropicClient: Sendable {
         guard let decoded = try? JSONDecoder().decode(MessagesResponse.self, from: data) else {
             throw RunError("The Anthropic API sent a response Pecto couldn't read.")
         }
-        return decoded.text
+        return RunOutput(
+            text: decoded.text,
+            usage: RunUsage(
+                inputTokens: decoded.usage?.inputTokens,
+                outputTokens: decoded.usage?.outputTokens
+            )
+        )
     }
 }

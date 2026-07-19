@@ -10,6 +10,10 @@ final class RunCoordinator {
     private let settings: SettingsStore
     private let client = AnthropicClient()
 
+    /// Injected by AppModel; swapped when the workspace changes.
+    var history: HistoryStore?
+    var onHistoryChanged: (() -> Void)?
+
     private(set) var runningSlots: Set<Int> = []
 
     var isRunning: Bool { !runningSlots.isEmpty }
@@ -78,17 +82,19 @@ final class RunCoordinator {
             filledInstructions: fillPlaceholders(task.instructions, values: values)
         )
 
+        let startedAt = Self.nowMilliseconds()
         runningSlots.insert(slot)
         Task {
             do {
-                let text = try await client.run(prompt: prompt, apiKey: apiKey)
-                if text.isEmpty {
+                let output = try await client.run(prompt: prompt, apiKey: apiKey)
+                record(path: path, startedAt: startedAt, status: .succeeded, output: output.text, error: nil, usage: output.usage, inputs: values)
+                if output.text.isEmpty {
                     NotificationService.post(
                         title: "\(name) came back empty",
                         body: "The model returned nothing. Your clipboard is unchanged."
                     )
                 } else {
-                    ClipboardService.writeText(text)
+                    ClipboardService.writeText(output.text)
                     NotificationService.post(
                         title: "\(name) finished",
                         body: "The result is on your clipboard — paste away."
@@ -96,6 +102,7 @@ final class RunCoordinator {
                 }
             } catch {
                 let reason = (error as? RunError)?.message ?? error.localizedDescription
+                record(path: path, startedAt: startedAt, status: .failed, output: nil, error: reason, usage: nil, inputs: values)
                 NotificationService.post(
                     title: "\(name) didn't finish",
                     body: "\(reason) Your clipboard is unchanged."
@@ -103,5 +110,36 @@ final class RunCoordinator {
             }
             runningSlots.remove(slot)
         }
+    }
+
+    /// Only runs that actually reached the API are recorded — pre-flight
+    /// refusals (missing key, empty clipboard, unrunnable task) are not runs.
+    private func record(
+        path: String,
+        startedAt: Int,
+        status: RunStatus,
+        output: String?,
+        error: String?,
+        usage: RunUsage?,
+        inputs: [String: String]
+    ) {
+        history?.recordRun(RunRecord(
+            id: UUID().uuidString,
+            taskPath: path,
+            startedAt: startedAt,
+            finishedAt: Self.nowMilliseconds(),
+            status: status,
+            model: AnthropicClient.defaultModel,
+            inputTokens: usage?.inputTokens,
+            outputTokens: usage?.outputTokens,
+            output: output,
+            error: error,
+            inputs: inputs.isEmpty ? nil : inputs
+        ))
+        onHistoryChanged?()
+    }
+
+    private static func nowMilliseconds() -> Int {
+        Int(Date().timeIntervalSince1970 * 1000)
     }
 }

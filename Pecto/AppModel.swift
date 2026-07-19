@@ -9,6 +9,9 @@ final class AppModel {
     let settings: SettingsStore
     let runner: RunCoordinator
     private var hotkeys: HotkeyManager?
+    private(set) var history: HistoryStore?
+    /// Bumped on every history write so the pane recomputes its lists.
+    private(set) var historyVersion = 0
 
     private(set) var tasks: [TaskSummary] = []
     private(set) var selectedPath: String?
@@ -21,14 +24,62 @@ final class AppModel {
         let settings = SettingsStore()
         self.settings = settings
         self.runner = RunCoordinator(settings: settings)
+        openHistoryStore()
         refresh()
 
+        runner.onHistoryChanged = { [weak self] in
+            self?.historyVersion += 1
+        }
         let runner = self.runner
         let hotkeys = HotkeyManager { slot in
             runner.fire(slot: slot)
         }
         hotkeys.register()
         self.hotkeys = hotkeys
+    }
+
+    // MARK: - History
+
+    private func openHistoryStore() {
+        let path = settings.workspaceURL
+            .appendingPathComponent(".pecto/pecto.db").path
+        history = try? HistoryStore(path: path)
+        runner.history = history
+    }
+
+    func runs(for path: String) -> [RunRecord] {
+        _ = historyVersion
+        return history?.listRuns(taskPath: path) ?? []
+    }
+
+    func snapshots(for path: String) -> [SnapshotRecord] {
+        _ = historyVersion
+        return history?.listSnapshots(taskPath: path) ?? []
+    }
+
+    func snapshotDetail(id: Int) -> (record: SnapshotRecord, content: String, prevContent: String)? {
+        _ = historyVersion
+        return history?.getSnapshot(id: id)
+    }
+
+    func restoreSnapshot(id: Int) {
+        guard let selectedPath, let detail = history?.getSnapshot(id: id) else { return }
+        run {
+            try settings.workspace.writeFile(selectedPath, content: detail.content)
+            recordSnapshot(kind: .restored, path: selectedPath, content: detail.content)
+            draft = detail.content
+            savedContent = detail.content
+            refresh()
+        }
+    }
+
+    private func recordSnapshot(kind: SnapshotKind, path: String, content: String) {
+        history?.recordSnapshot(taskPath: path, kind: kind, content: content, at: Self.nowMilliseconds())
+        historyVersion += 1
+    }
+
+    private static func nowMilliseconds() -> Int {
+        Int(Date().timeIntervalSince1970 * 1000)
     }
 
     // MARK: - Task list
@@ -78,6 +129,7 @@ final class AppModel {
         guard let selectedPath, isDirty else { return }
         run {
             try settings.workspace.writeFile(selectedPath, content: draft)
+            recordSnapshot(kind: .edited, path: selectedPath, content: draft)
             savedContent = draft
             refresh()
         }
@@ -93,7 +145,8 @@ final class AppModel {
         }
         let path = "\(slug).md"
         run {
-            try settings.workspace.createTask(path)
+            let content = try settings.workspace.createTask(path)
+            recordSnapshot(kind: .created, path: path, content: content)
             refresh()
             select(path)
         }
@@ -107,6 +160,8 @@ final class AppModel {
         run {
             try settings.workspace.renameTask(from: selectedPath, to: newPath)
             settings.handleTaskRenamed(from: selectedPath, to: newPath)
+            history?.renameTask(from: selectedPath, to: newPath, content: savedContent, at: Self.nowMilliseconds())
+            historyVersion += 1
             refresh()
             select(newPath)
         }
@@ -117,6 +172,8 @@ final class AppModel {
         run {
             try settings.workspace.deleteTask(selectedPath)
             settings.handleTaskDeleted(selectedPath)
+            history?.deleteTask(taskPath: selectedPath)
+            historyVersion += 1
             select(nil)
             refresh()
         }
@@ -124,6 +181,8 @@ final class AppModel {
 
     func changeWorkspace(to path: String) {
         settings.setWorkspacePath(path)
+        openHistoryStore()
+        historyVersion += 1
         select(nil)
         refresh()
     }

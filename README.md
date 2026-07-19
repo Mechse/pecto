@@ -35,7 +35,7 @@ Then: menu-bar icon → **Open Pecto** → select `improve-email` → pick a sho
 
 ## Tests
 
-All core behavior (task parsing, placeholders, prompt construction, workspace file rules, API client) lives in the `PectoKit` package:
+All core behavior (task parsing, placeholders, prompt construction, workspace file rules, API client, run/change history store, diff) lives in the `PectoKit` package:
 
 ```sh
 cd PectoKit && swift test

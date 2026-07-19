@@ -6,6 +6,7 @@ struct TaskEditorView: View {
     @State private var isRenaming = false
     @State private var renameTo = ""
     @State private var isConfirmingDelete = false
+    @AppStorage("historyPaneOpen") private var isHistoryOpen = false
 
     var body: some View {
         if let task = model.selectedTask {
@@ -36,6 +37,10 @@ struct TaskEditorView: View {
         }
         .navigationTitle(task.name ?? task.path)
         .navigationSubtitle(model.isDirty ? "Edited" : "")
+        .inspector(isPresented: $isHistoryOpen) {
+            HistoryPanel(model: model, task: task)
+                .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
+        }
         .toolbar {
             ToolbarItemGroup {
                 SlotPickerView(model: model, task: task)
@@ -43,6 +48,11 @@ struct TaskEditorView: View {
                 Button("Save") { model.save() }
                     .keyboardShortcut("s")
                     .disabled(!model.isDirty)
+
+                Toggle(isOn: $isHistoryOpen) {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+                .help("Show run and change history")
 
                 Menu {
                     Button("Rename…") {
