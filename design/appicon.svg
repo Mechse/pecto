@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="#191917"/>
+
+  <!-- large four-point sparkle -->
+  <path fill="#f7f6f1"
+        d="M423 256
+           C423 428 423 428 595 512
+           C423 596 423 596 423 768
+           C423 596 423 596 251 512
+           C423 428 423 428 423 256 Z"/>
+
+  <!-- small accent sparkle -->
+  <path fill="#12a367"
+        d="M685 260
+           C685 348 685 348 773 392
+           C685 436 685 436 685 524
+           C685 436 685 436 597 392
+           C685 348 685 348 685 260 Z"/>
+</svg>

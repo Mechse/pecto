@@ -22,6 +22,9 @@ targets:
         LSUIElement: true
         CFBundleDisplayName: Pecto
         NSSupportsAutomaticTermination: false
+        LSApplicationCategoryType: public.app-category.productivity
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pecto.app
@@ -29,6 +32,10 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_VERSION: "6.0"
+        # Bumped per release. The git tag may carry a prerelease suffix
+        # (v0.1.0-beta.1); CFBundleShortVersionString cannot, so it stays numeric.
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
 
 schemes:
   Pecto:
