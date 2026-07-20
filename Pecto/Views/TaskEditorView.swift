@@ -4,8 +4,11 @@ import PectoKit
 struct TaskEditorView: View {
     @Bindable var model: AppModel
     @Binding var detailPath: [DetailRoute]
-    @AppStorage("historyPaneOpen") private var isHistoryOpen = false
+    @AppStorage("historyPaneOpen") private var isChangesOpen = false
+    @AppStorage("runsPaneOpen") private var isRunsOpen = false
+    @AppStorage("runsPaneHeight") private var runsPaneHeight = 240.0
     @AppStorage(EditorFont.sizeKey) private var fontSize = EditorFont.defaultSize
+    @State private var dragBaseHeight: Double?
 
     var body: some View {
         if let task = model.selectedTask {
@@ -34,6 +37,13 @@ struct TaskEditorView: View {
                 .lineSpacing(fontSize * EditorFont.lineSpacingFactor)
                 .scrollContentBackground(.hidden)
                 .padding(8)
+
+            if isRunsOpen {
+                splitter
+                RunsPanel(model: model, task: task)
+                    .id(task.path)
+                    .frame(height: runsPaneHeight)
+            }
         }
         .background {
             // ⌘= alias for Increase Font Size — "+" is Shift+= on most layouts.
@@ -43,8 +53,8 @@ struct TaskEditorView: View {
         }
         .navigationTitle(task.name ?? task.path)
         .navigationSubtitle(model.isDirty ? "Edited" : "")
-        .inspector(isPresented: $isHistoryOpen) {
-            HistoryPanel(model: model, task: task)
+        .inspector(isPresented: $isChangesOpen) {
+            ChangesPanel(model: model, task: task)
                 .inspectorColumnWidth(min: 260, ideal: 320, max: 460)
         }
         .toolbar {
@@ -68,10 +78,16 @@ struct TaskEditorView: View {
                     .keyboardShortcut("s")
                     .disabled(!model.isDirty)
 
-                Toggle(isOn: $isHistoryOpen) {
-                    Label("History", systemImage: "clock.arrow.circlepath")
+                Toggle(isOn: $isRunsOpen) {
+                    Label("Runs", systemImage: "play.rectangle.on.rectangle")
                 }
-                .help("Show run and change history")
+                .keyboardShortcut("y", modifiers: [.command, .shift])
+                .help("Show run history below the editor (⇧⌘Y)")
+
+                Toggle(isOn: $isChangesOpen) {
+                    Label("Changes", systemImage: "plus.forwardslash.minus")
+                }
+                .help("Show change history for this task")
 
                 Button {
                     detailPath.append(.config)
@@ -81,5 +97,27 @@ struct TaskEditorView: View {
                 .help("Name, description, shortcut, model and deletion for this task")
             }
         }
+    }
+
+    /// Drag handle between the editor and the runs panel; height persists via AppStorage.
+    private var splitter: some View {
+        Divider()
+            .overlay(Rectangle().fill(.clear).frame(height: 8).contentShape(.rect))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let base = dragBaseHeight ?? runsPaneHeight
+                        dragBaseHeight = base
+                        runsPaneHeight = min(600, max(120, base - value.translation.height))
+                    }
+                    .onEnded { _ in dragBaseHeight = nil }
+            )
+            .onHover { inside in
+                if inside {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
     }
 }
