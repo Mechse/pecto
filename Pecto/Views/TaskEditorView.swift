@@ -5,6 +5,7 @@ struct TaskEditorView: View {
     @Bindable var model: AppModel
     @Binding var detailPath: [DetailRoute]
     @AppStorage("historyPaneOpen") private var isHistoryOpen = false
+    @AppStorage(EditorFont.sizeKey) private var fontSize = EditorFont.defaultSize
 
     var body: some View {
         if let task = model.selectedTask {
@@ -29,9 +30,16 @@ struct TaskEditorView: View {
             }
 
             TextEditor(text: $model.draft)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: fontSize, design: .monospaced))
+                .lineSpacing(fontSize * EditorFont.lineSpacingFactor)
                 .scrollContentBackground(.hidden)
                 .padding(8)
+        }
+        .background {
+            // ⌘= alias for Increase Font Size — "+" is Shift+= on most layouts.
+            Button("") { fontSize = EditorFont.clamped(fontSize + 1) }
+                .keyboardShortcut("=", modifiers: .command)
+                .hidden()
         }
         .navigationTitle(task.name ?? task.path)
         .navigationSubtitle(model.isDirty ? "Edited" : "")

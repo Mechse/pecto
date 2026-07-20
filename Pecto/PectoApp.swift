@@ -18,6 +18,9 @@ struct PectoApp: App {
         }
         .defaultSize(width: 880, height: 560)
         .defaultLaunchBehavior(.suppressed)
+        .commands {
+            EditorFontCommands()
+        }
 
         Settings {
             SettingsView(model: model)
