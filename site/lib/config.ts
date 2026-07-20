@@ -1,9 +1,11 @@
 // Single source of truth for site copy and links.
-// GITHUB_REPO is a placeholder until the repo is published — everything
-// degrades gracefully (no star count, download links to the releases page).
-export const GITHUB_REPO = "maximilianleodolter/pecto";
+// If the releases API is unreachable everything degrades gracefully —
+// no star count, and download falls back to the releases page.
+export const GITHUB_REPO = "Mechse/pecto";
 export const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
-export const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
+// The releases index, not /releases/latest — the latter 404s on a repo whose
+// only releases are prereleases.
+export const RELEASES_URL = `${GITHUB_URL}/releases`;
 
 export const APP_NAME = "Pecto";
 export const TAGLINE = "Put an AI between copy and paste.";
@@ -36,6 +38,26 @@ export const FEATURES = [
     body: "A failed run never touches your clipboard. Only a finished result replaces what you copied.",
   },
 ];
+
+// The beta is ad-hoc signed, not notarized, so Gatekeeper blocks the first
+// launch. Remove this section once builds are signed with a Developer ID.
+export const INSTALL_STEPS = [
+  {
+    title: "Drag Pecto to Applications",
+    body: "Open the downloaded .dmg and drag the Pecto icon onto the Applications folder.",
+  },
+  {
+    title: "Try to open it once",
+    body: "Launch Pecto from Applications. macOS will refuse and say it could not verify the developer. Click Done — this is expected.",
+  },
+  {
+    title: "Approve it in Privacy & Security",
+    body: "Open System Settings → Privacy & Security, scroll to the Security section, and click Open Anyway next to Pecto. Confirm, and Pecto starts in your menu bar.",
+  },
+];
+
+export const INSTALL_NOTE =
+  "Pecto is not yet notarized by Apple, so macOS blocks it the first time. You only do this once. Notarized builds are coming — until then you can also build from source.";
 
 export const COMPATIBILITY = [
   { label: "macOS", value: "15 Sequoia or later" },

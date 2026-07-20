@@ -2,6 +2,7 @@ import { Compatibility } from "@/components/compatibility";
 import { Features } from "@/components/features";
 import { Hero } from "@/components/hero";
 import { HowItWorks } from "@/components/how-it-works";
+import { Install } from "@/components/install";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
 import { RELEASES_URL } from "@/lib/config";
@@ -19,6 +20,7 @@ export default async function Home() {
         <HowItWorks />
         <Features />
         <Compatibility />
+        <Install />
       </main>
       <SiteFooter />
     </>

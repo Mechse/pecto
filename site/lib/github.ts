@@ -8,26 +8,55 @@ const HEADERS = { Accept: "application/vnd.github+json" };
 export type LatestRelease = {
   version: string;
   downloadUrl: string;
+  prerelease: boolean;
 };
 
-// Latest release with a .dmg (or .zip) asset. Null until the repo exists
-// and has a release — callers fall back to the releases page.
+type Release = {
+  tag_name?: string;
+  draft?: boolean;
+  prerelease?: boolean;
+  assets?: { name: string; browser_download_url: string }[];
+};
+
+function downloadable(release: Release): LatestRelease | null {
+  const assets = release.assets ?? [];
+  const asset =
+    assets.find((a) => a.name.endsWith(".dmg")) ??
+    assets.find((a) => a.name.endsWith(".zip"));
+  if (!release.tag_name || !asset) return null;
+  return {
+    version: release.tag_name,
+    downloadUrl: asset.browser_download_url,
+    prerelease: release.prerelease === true,
+  };
+}
+
+// Newest release with a .dmg (or .zip) asset.
+//
+// Deliberately does NOT use /releases/latest: that endpoint excludes
+// prereleases and 404s while we are shipping betas only. Instead we list
+// releases (newest first) and prefer the newest stable one, falling back to
+// the newest prerelease when no stable release exists yet. That way this
+// keeps working unchanged once a 1.0 ships.
+//
+// Null if the repo has no usable release — callers fall back to RELEASES_URL.
 export async function getLatestRelease(): Promise<LatestRelease | null> {
   "use cache";
   cacheLife("hours");
   try {
-    const res = await fetch(`${API}/releases/latest`, { headers: HEADERS });
+    const res = await fetch(`${API}/releases?per_page=20`, { headers: HEADERS });
     if (!res.ok) return null;
-    const release = (await res.json()) as {
-      tag_name?: string;
-      assets?: { name: string; browser_download_url: string }[];
-    };
-    const assets = release.assets ?? [];
-    const asset =
-      assets.find((a) => a.name.endsWith(".dmg")) ??
-      assets.find((a) => a.name.endsWith(".zip"));
-    if (!release.tag_name || !asset) return null;
-    return { version: release.tag_name, downloadUrl: asset.browser_download_url };
+    const releases = (await res.json()) as Release[];
+    if (!Array.isArray(releases)) return null;
+
+    const published = releases.filter((r) => r.draft !== true);
+    const stable = published.filter((r) => r.prerelease !== true);
+
+    for (const release of [...stable, ...published]) {
+      const found = downloadable(release);
+      if (found) return found;
+    }
+    return null;
   } catch {
     return null;
   }
