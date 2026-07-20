@@ -53,7 +53,6 @@ private func parseErrorMessage(_ markdown: String) -> String? {
         ---
         name: has-extras
         description: Carries fields from the future
-        model: claude-sonnet-4-5
         inputs: whatever
         ---
 
@@ -110,6 +109,23 @@ private func parseErrorMessage(_ markdown: String) -> String? {
         let markdown = "---\nname: no-body\ndescription: Settings only\n---"
         #expect(parseErrorMessage(markdown) ==
             "This task has settings but no instructions. Below the settings block, describe in plain language what should happen.")
+    }
+
+    @Test func parsesOptionalModel() throws {
+        let markdown = "---\nname: t\ndescription: A task.\nmodel: claude-haiku-4-5\n---\n\nBody."
+        let task = try parseTask(markdown)
+        #expect(task.frontmatter.model == "claude-haiku-4-5")
+    }
+
+    @Test func absentModelIsNil() throws {
+        let task = try parseTask(sample)
+        #expect(task.frontmatter.model == nil)
+    }
+
+    @Test func rejectsNonStringOrEmptyModel() {
+        let expected = "The model setting must be a model name like claude-sonnet-4-5 (model)"
+        #expect(parseErrorMessage("---\nname: t\ndescription: A task.\nmodel: 5\n---\n\nBody.") == expected)
+        #expect(parseErrorMessage("---\nname: t\ndescription: A task.\nmodel: \"\"\n---\n\nBody.") == expected)
     }
 
     @Test func slugRule() {

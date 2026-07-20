@@ -172,6 +172,7 @@ final class RunCoordinator {
             task: task.frontmatter,
             filledInstructions: fillPlaceholders(task.instructions, values: values)
         )
+        let model = task.frontmatter.model ?? AnthropicClient.defaultModel
 
         let startedAt = Self.nowMilliseconds()
         runningPaths.insert(path)
@@ -190,8 +191,8 @@ final class RunCoordinator {
                 return
             }
             do {
-                let output = try await client.run(prompt: prompt, apiKey: apiKey)
-                record(path: path, startedAt: startedAt, status: .succeeded, output: output.text, error: nil, usage: output.usage, inputs: values)
+                let output = try await client.run(prompt: prompt, apiKey: apiKey, model: model)
+                record(path: path, startedAt: startedAt, status: .succeeded, model: model, output: output.text, error: nil, usage: output.usage, inputs: values)
                 if output.text.isEmpty {
                     report(
                         path: path,
@@ -210,7 +211,7 @@ final class RunCoordinator {
                 }
             } catch {
                 let reason = (error as? RunError)?.message ?? error.localizedDescription
-                record(path: path, startedAt: startedAt, status: .failed, output: nil, error: reason, usage: nil, inputs: values)
+                record(path: path, startedAt: startedAt, status: .failed, model: model, output: nil, error: reason, usage: nil, inputs: values)
                 report(
                     path: path,
                     kind: .failure,
@@ -228,6 +229,7 @@ final class RunCoordinator {
         path: String,
         startedAt: Int,
         status: RunStatus,
+        model: String,
         output: String?,
         error: String?,
         usage: RunUsage?,
@@ -239,7 +241,7 @@ final class RunCoordinator {
             startedAt: startedAt,
             finishedAt: Self.nowMilliseconds(),
             status: status,
-            model: AnthropicClient.defaultModel,
+            model: model,
             inputTokens: usage?.inputTokens,
             outputTokens: usage?.outputTokens,
             output: output,

@@ -3,9 +3,7 @@ import PectoKit
 
 struct TaskEditorView: View {
     @Bindable var model: AppModel
-    @State private var isRenaming = false
-    @State private var renameTo = ""
-    @State private var isConfirmingDelete = false
+    @Binding var detailPath: [DetailRoute]
     @AppStorage("historyPaneOpen") private var isHistoryOpen = false
 
     var body: some View {
@@ -58,8 +56,6 @@ struct TaskEditorView: View {
                     .help(model.draftRunProblem ?? "Save and run this task on your clipboard (⌘R)")
                 }
 
-                SlotPickerView(model: model, task: task)
-
                 Button("Save") { model.save() }
                     .keyboardShortcut("s")
                     .disabled(!model.isDirty)
@@ -69,34 +65,13 @@ struct TaskEditorView: View {
                 }
                 .help("Show run and change history")
 
-                Menu {
-                    Button("Rename…") {
-                        renameTo = String(task.path.dropLast(3))
-                        isRenaming = true
-                    }
-                    Button("Delete…", role: .destructive) {
-                        isConfirmingDelete = true
-                    }
+                Button {
+                    detailPath.append(.config)
                 } label: {
-                    Label("More", systemImage: "ellipsis.circle")
+                    Label("Configure", systemImage: "gearshape")
                 }
+                .help("Name, description, shortcut, model and deletion for this task")
             }
-        }
-        .alert("Rename task file", isPresented: $isRenaming) {
-            TextField("task-name", text: $renameTo)
-            Button("Rename") { model.renameSelectedTask(to: renameTo) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Renames the file only — the name: inside the task stays as written.")
-        }
-        .confirmationDialog(
-            "Delete \(task.path)?",
-            isPresented: $isConfirmingDelete
-        ) {
-            Button("Delete Permanently", role: .destructive) { model.deleteSelectedTask() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently deletes the file and clears its shortcut.")
         }
     }
 }

@@ -93,6 +93,9 @@ struct APIErrorEnvelope: Decodable {
 /// Direct, non-streaming call to the Anthropic Messages API — no SDK.
 public struct AnthropicClient: Sendable {
     public static let defaultModel = "claude-sonnet-4-5"
+    /// Choices offered in the per-task model picker, besides the default.
+    /// A task file may carry any model string; unknown ones are still honored.
+    public static let selectableModels = ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"]
     public static let maxTokens = 8192
 
     let session: URLSession

@@ -2,12 +2,15 @@ import Foundation
 import Yams
 
 public struct TaskFrontmatter: Equatable, Sendable {
-    public let name: String
-    public let description: String
+    public var name: String
+    public var description: String
+    /// Anthropic model ID override; nil means the app default.
+    public var model: String?
 
-    public init(name: String, description: String) {
+    public init(name: String, description: String, model: String? = nil) {
         self.name = name
         self.description = description
+        self.model = model
     }
 }
 
@@ -44,7 +47,7 @@ public func isTaskSlug(_ value: String) -> Bool {
     value.range(of: taskSlugPattern, options: .regularExpression) != nil
 }
 
-private let frontmatterRegex = try! NSRegularExpression(
+let frontmatterRegex = try! NSRegularExpression(
     pattern: "^---\\r?\\n([\\s\\S]*?)\\r?\\n---\\r?\\n?([\\s\\S]*)$"
 )
 
@@ -82,7 +85,7 @@ public func parseTask(_ markdown: String) throws -> ParsedTask {
     return ParsedTask(frontmatter: frontmatter, instructions: instructions, raw: markdown)
 }
 
-private func validateFrontmatter(_ data: Any?) throws -> TaskFrontmatter {
+func validateFrontmatter(_ data: Any?) throws -> TaskFrontmatter {
     let fields: [AnyHashable: Any]
     switch data {
     case nil:
@@ -105,5 +108,14 @@ private func validateFrontmatter(_ data: Any?) throws -> TaskFrontmatter {
     guard let description = fields["description"] as? String, !description.isEmpty else {
         throw TaskParseError("Every task needs a one-line description (description)")
     }
-    return TaskFrontmatter(name: name, description: description)
+    var model: String?
+    if let rawModel = fields["model"] {
+        guard let value = rawModel as? String, !value.isEmpty else {
+            throw TaskParseError(
+                "The model setting must be a model name like claude-sonnet-4-5 (model)"
+            )
+        }
+        model = value
+    }
+    return TaskFrontmatter(name: name, description: description, model: model)
 }

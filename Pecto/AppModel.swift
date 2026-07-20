@@ -16,8 +16,16 @@ final class AppModel {
 
     private(set) var tasks: [TaskSummary] = []
     private(set) var selectedPath: String?
+    /// The selected task's settings + last-saved body. The editor never shows
+    /// the frontmatter; it is round-tripped through this document on save.
+    private(set) var document: TaskDocument?
+    /// Body-only editor text — what the TextEditor binds to.
     var draft: String = ""
-    private(set) var savedContent: String = ""
+    private(set) var savedBody: String = ""
+    /// The file on disk had broken settings and was repaired in memory; the
+    /// repaired frontmatter must reach disk on the next write even if the
+    /// body is untouched.
+    private var needsRepairWrite = false
     /// One-shot message for failed file operations, shown as an alert.
     var operationError: String?
     /// Whether a key is in the keychain — drives the "add your key" banner.
@@ -91,8 +99,7 @@ final class AppModel {
         run {
             try settings.workspace.writeFile(selectedPath, content: detail.content)
             recordSnapshot(kind: .restored, path: selectedPath, content: detail.content)
-            draft = detail.content
-            savedContent = detail.content
+            loadDocument(from: detail.content, path: selectedPath)
             refresh()
         }
     }
@@ -122,47 +129,52 @@ final class AppModel {
     func select(_ path: String?) {
         selectedPath = path
         guard let path, let content = try? settings.workspace.readFile(path) else {
+            document = nil
             draft = ""
-            savedContent = ""
+            savedBody = ""
+            needsRepairWrite = false
             return
         }
-        draft = content
-        savedContent = content
+        loadDocument(from: content, path: path)
+    }
+
+    /// Lenient load: broken settings are silently repaired in memory (name
+    /// from the filename, placeholder description) — the user never sees YAML.
+    private func loadDocument(from content: String, path: String) {
+        let (loaded, wasRepaired) = loadDocumentRepairing(
+            content, fallbackName: String(path.dropLast(3))
+        )
+        document = loaded
+        draft = loaded.body
+        savedBody = loaded.body
+        needsRepairWrite = wasRepaired
     }
 
     // MARK: - Editing
 
     var isDirty: Bool {
-        selectedPath != nil && draft != savedContent
+        selectedPath != nil && draft != savedBody
     }
 
-    /// Live parse problem of the unsaved draft, for the editor banner.
+    /// Live problem with the unsaved draft, for the editor banner. The body is
+    /// free text now — the only invalid state is having none.
     var draftValidationError: String? {
         guard selectedPath != nil else { return nil }
-        do {
-            _ = try parseTask(draft)
-            return nil
-        } catch let error as TaskParseError {
-            return error.message
-        } catch {
-            return nil
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "This task has no instructions yet. Describe in plain language what should happen when it runs."
         }
+        return nil
     }
 
-    /// Why the draft can't run right now (parse problem or a non-clipboard
+    /// Why the draft can't run right now (empty body or a non-clipboard
     /// placeholder) — nil when it's runnable. Judged on the draft because the
     /// Run button saves it before running.
     var draftRunProblem: String? {
         guard selectedPath != nil else { return nil }
-        let task: ParsedTask
-        do {
-            task = try parseTask(draft)
-        } catch let error as TaskParseError {
-            return error.message
-        } catch {
-            return "This task could not be read."
+        if let error = draftValidationError {
+            return error
         }
-        if case .notRunnable(let reason) = slotRunnability(instructions: task.instructions) {
+        if case .notRunnable(let reason) = slotRunnability(instructions: draft) {
             return reason
         }
         return nil
@@ -177,13 +189,46 @@ final class AppModel {
     }
 
     func save() {
-        guard let selectedPath, isDirty else { return }
+        guard let selectedPath, var document, isDirty || needsRepairWrite else { return }
+        document.body = draft
+        let content = document.serialize()
         run {
-            try settings.workspace.writeFile(selectedPath, content: draft)
-            recordSnapshot(kind: .edited, path: selectedPath, content: draft)
-            savedContent = draft
+            try settings.workspace.writeFile(selectedPath, content: content)
+            recordSnapshot(kind: .edited, path: selectedPath, content: content)
+            self.document = document
+            savedBody = draft
+            needsRepairWrite = false
             refresh()
         }
+    }
+
+    // MARK: - Task config
+
+    /// Config edits write through immediately, serialized with the *saved*
+    /// body — they never commit (or lose) unsaved editor text.
+    private func updateFrontmatter(_ mutate: (inout TaskFrontmatter) -> Void) {
+        guard let selectedPath, var document else { return }
+        mutate(&document.frontmatter)
+        document.body = savedBody
+        let content = document.serialize()
+        run {
+            try settings.workspace.writeFile(selectedPath, content: content)
+            recordSnapshot(kind: .edited, path: selectedPath, content: content)
+            self.document = document
+            needsRepairWrite = false
+            refresh()
+        }
+    }
+
+    func updateDescription(_ input: String) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != document?.frontmatter.description else { return }
+        updateFrontmatter { $0.description = trimmed }
+    }
+
+    func updateModel(_ model: String?) {
+        guard model != document?.frontmatter.model else { return }
+        updateFrontmatter { $0.model = model }
     }
 
     // MARK: - Lifecycle
@@ -203,18 +248,36 @@ final class AppModel {
         }
     }
 
+    /// Renames the file AND rewrites the frontmatter `name:` to match — the
+    /// config view's Name field is the single rename surface. Unsaved body
+    /// edits survive: the write uses `savedBody` and the draft is kept.
     func renameSelectedTask(to input: String) {
-        guard let selectedPath else { return }
+        guard let selectedPath, var document else { return }
         let slug = Self.slugify(input)
+        guard !slug.isEmpty else {
+            operationError = "Task names use lowercase letters, numbers and dashes (e.g. enrich-new-signups)."
+            return
+        }
         let newPath = "\(slug).md"
-        guard newPath != selectedPath else { return }
+        guard newPath != selectedPath || document.frontmatter.name != slug else { return }
+        document.frontmatter.name = slug
+        document.body = savedBody
+        let content = document.serialize()
         run {
-            try settings.workspace.renameTask(from: selectedPath, to: newPath)
-            settings.handleTaskRenamed(from: selectedPath, to: newPath)
-            history?.renameTask(from: selectedPath, to: newPath, content: savedContent, at: Self.nowMilliseconds())
-            historyVersion += 1
+            if newPath != selectedPath {
+                try settings.workspace.renameTask(from: selectedPath, to: newPath)
+                try settings.workspace.writeFile(newPath, content: content)
+                settings.handleTaskRenamed(from: selectedPath, to: newPath)
+                history?.renameTask(from: selectedPath, to: newPath, content: content, at: Self.nowMilliseconds())
+                historyVersion += 1
+            } else {
+                try settings.workspace.writeFile(newPath, content: content)
+                recordSnapshot(kind: .edited, path: newPath, content: content)
+            }
+            self.document = document
+            needsRepairWrite = false
+            self.selectedPath = newPath
             refresh()
-            select(newPath)
         }
     }
 

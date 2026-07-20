@@ -1,13 +1,31 @@
 import SwiftUI
 
+/// Routes pushable onto the detail column's stack.
+enum DetailRoute: Hashable {
+    case config
+}
+
 struct MainWindowView: View {
     @Bindable var model: AppModel
+    @State private var detailPath: [DetailRoute] = []
 
     var body: some View {
         NavigationSplitView {
             TaskListView(model: model)
         } detail: {
-            TaskEditorView(model: model)
+            NavigationStack(path: $detailPath) {
+                TaskEditorView(model: model, detailPath: $detailPath)
+                    .navigationDestination(for: DetailRoute.self) { route in
+                        switch route {
+                        case .config:
+                            TaskConfigView(model: model)
+                        }
+                    }
+            }
+        }
+        // Switching (or losing) the selected task pops the config view.
+        .onChange(of: model.selectedPath) {
+            detailPath.removeAll()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             statusArea
