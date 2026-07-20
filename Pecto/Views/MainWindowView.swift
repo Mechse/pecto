@@ -27,10 +27,11 @@ struct MainWindowView: View {
 
     /// Run feedback lives in the window too — notifications can be
     /// unavailable for unsigned dev builds, and the app must never look dead.
+    /// Success is the quiet path (notch flash only); the bar shows problems.
     @ViewBuilder
     private var statusArea: some View {
         VStack(spacing: 0) {
-            if let outcome = model.runner.lastOutcome {
+            if let outcome = model.runner.lastOutcome, outcome.kind != .success {
                 Divider()
                 HStack(spacing: 8) {
                     Image(systemName: icon(for: outcome.kind))

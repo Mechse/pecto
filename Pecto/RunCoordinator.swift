@@ -25,8 +25,11 @@ struct PendingConfirmation: Equatable {
     let requestedAt: Date
 }
 
-/// Executes a shortcut-slot run: clipboard in → Anthropic → clipboard out,
-/// with a notification either way. The clipboard is only touched on success.
+/// Executes a shortcut-slot run: clipboard in → Anthropic → clipboard out.
+/// Failures and refusals are reported loudly (notification + window status
+/// bar); success is deliberately quiet — just the brief notch flash — since
+/// "it worked, paste away" is the expected outcome, not news.
+/// The clipboard is only touched on success.
 @MainActor
 @Observable
 final class RunCoordinator {
@@ -49,11 +52,15 @@ final class RunCoordinator {
         lastOutcome = nil
     }
 
-    /// Every piece of run feedback goes to both channels: a notification (for
+    /// Failures and refusals go to both channels: a notification (for
     /// background runs) and the in-window status bar (always visible).
+    /// Success only records `lastOutcome` for the notch's short-lived flash —
+    /// no notification, and the status bar skips success outcomes.
     private func report(path: String, kind: RunOutcome.Kind, title: String, body: String) {
         lastOutcome = RunOutcome(taskPath: path, kind: kind, message: "\(title) — \(body)", at: Date())
-        NotificationService.post(title: title, body: body)
+        if kind != .success {
+            NotificationService.post(title: title, body: body)
+        }
     }
 
     init(settings: SettingsStore) {
