@@ -53,14 +53,14 @@ struct TaskConfigView: View {
             }
 
             Section {
-                Picker("Model", selection: modelBinding) {
-                    Text("Default (\(AnthropicClient.defaultModel))").tag(nil as String?)
-                    ForEach(modelChoices, id: \.self) { id in
-                        Text(id).tag(Optional(id))
-                    }
-                }
+                ModelPickerView(
+                    title: "Model",
+                    defaultOptionLabel: "Default (\(model.resolvedModelRef(forTaskModel: nil).qualified))",
+                    appleAvailable: model.appleAvailability.isAvailable,
+                    selection: modelBinding
+                )
             } footer: {
-                Text("Which Claude model runs this task.")
+                Text("Which model runs this task.")
             }
 
             Section {
@@ -94,16 +94,6 @@ struct TaskConfigView: View {
             commitName()
             commitDescription()
         }
-    }
-
-    /// The curated picker choices, plus the file's current model if it isn't
-    /// one of them — opening the config must never silently reset it.
-    private var modelChoices: [String] {
-        var choices = AnthropicClient.selectableModels
-        if let current = model.document?.frontmatter.model, !choices.contains(current) {
-            choices.append(current)
-        }
-        return choices
     }
 
     private var modelBinding: Binding<String?> {

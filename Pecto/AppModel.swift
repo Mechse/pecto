@@ -2,6 +2,37 @@ import Foundation
 import Observation
 import PectoKit
 
+/// Sections of the in-window Settings screen.
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general
+    case apiKeys
+    case workspace
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .apiKeys: "API Keys"
+        case .workspace: "Workspace"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: "gearshape"
+        case .apiKeys: "key.fill"
+        case .workspace: "folder"
+        }
+    }
+}
+
+/// What fills the main window: the task UI, or the full-window Settings.
+enum MainRoute: Equatable {
+    case tasks
+    case settings(SettingsSection)
+}
+
 /// Root object owning settings, the run pipeline, hotkeys, and editor state.
 @MainActor
 @Observable
@@ -28,13 +59,27 @@ final class AppModel {
     private var needsRepairWrite = false
     /// One-shot message for failed file operations, shown as an alert.
     var operationError: String?
-    /// Whether a key is in the keychain — drives the "add your key" banner.
-    private(set) var hasAPIKey = false
+    /// Providers with a key in the keychain — drives the missing-key banner
+    /// and the status dots in Settings.
+    private(set) var storedKeyProviders: Set<ProviderID> = []
+    /// Checked once at launch; drives the Apple rows in pickers and Settings.
+    let appleAvailability = AppleModelAvailability.check()
+    /// The main window's content — tasks, or the full-window Settings.
+    var mainRoute: MainRoute = .tasks
+
+    /// All clients, shared by the run pipeline and the Settings Test buttons.
+    let providers = ProviderRegistry(clients: [
+        AnthropicClient(),
+        OpenAICompatibleClient.openAI(),
+        OpenAICompatibleClient.xAI(),
+        GeminiClient(),
+        AppleOnDeviceClient(),
+    ])
 
     init() {
         let settings = SettingsStore()
         self.settings = settings
-        self.runner = RunCoordinator(settings: settings)
+        self.runner = RunCoordinator(settings: settings, providers: providers)
         openHistoryStore()
         refreshAPIKeyStatus()
         refresh()
@@ -64,10 +109,54 @@ final class AppModel {
     /// icon or hotkeys exist.
     func refreshAPIKeyStatus() {
         Task.detached(priority: .utility) { [weak self] in
-            let hasKey = KeychainService.loadAPIKey() != nil
+            let stored = Set(
+                ProviderCatalog.all
+                    .filter(\.requiresAPIKey)
+                    .map(\.id)
+                    .filter { KeychainService.loadAPIKey(for: $0) != nil }
+            )
             guard let self else { return }
-            await MainActor.run { self.hasAPIKey = hasKey }
+            await MainActor.run { self.storedKeyProviders = stored }
         }
+    }
+
+    // MARK: - Routing
+
+    func openSettings(_ section: SettingsSection = .general) {
+        mainRoute = .settings(section)
+    }
+
+    func closeSettings() {
+        mainRoute = .tasks
+    }
+
+    // MARK: - Model resolution
+
+    /// The model a task would actually run with: its own `model:`, else the
+    /// global default, else the built-in fallback.
+    func resolvedModelRef(forTaskModel raw: String?) -> ModelRef {
+        ModelRef.parse(raw ?? settings.defaultModel ?? ProviderCatalog.defaultModelRef.qualified)
+    }
+
+    /// Why the selected task can't run right now on the provider side —
+    /// missing key or unavailable on-device model. Nil when it's good to go.
+    /// With no selection it still nudges first-run users who have no keys.
+    var selectedTaskKeyWarning: String? {
+        guard selectedPath != nil else {
+            let defaultRef = resolvedModelRef(forTaskModel: nil)
+            let needsKey = ProviderCatalog.info(for: defaultRef.provider).requiresAPIKey
+            if needsKey, storedKeyProviders.isEmpty {
+                return "Add an API key to run tasks."
+            }
+            return nil
+        }
+        let ref = resolvedModelRef(forTaskModel: document?.frontmatter.model)
+        let info = ProviderCatalog.info(for: ref.provider)
+        if info.requiresAPIKey {
+            guard !storedKeyProviders.contains(ref.provider) else { return nil }
+            return "Add your \(info.displayName) API key to run this task."
+        }
+        return appleAvailability.explanation.map { "This task uses the Apple on-device model. \($0)" }
     }
 
     // MARK: - History

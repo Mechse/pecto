@@ -10,6 +10,28 @@ struct MainWindowView: View {
     @State private var detailPath: [DetailRoute] = []
 
     var body: some View {
+        Group {
+            switch model.mainRoute {
+            case .tasks:
+                taskSplitView
+            case .settings:
+                SettingsRootView(model: model)
+            }
+        }
+        .alert(
+            "That didn't work",
+            isPresented: Binding(
+                get: { model.operationError != nil },
+                set: { if !$0 { model.operationError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.operationError ?? "")
+        }
+    }
+
+    private var taskSplitView: some View {
         NavigationSplitView {
             TaskListView(model: model)
         } detail: {
@@ -29,17 +51,6 @@ struct MainWindowView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             statusArea
-        }
-        .alert(
-            "That didn't work",
-            isPresented: Binding(
-                get: { model.operationError != nil },
-                set: { if !$0 { model.operationError = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.operationError ?? "")
         }
     }
 
@@ -72,15 +83,15 @@ struct MainWindowView: View {
                 .background(.bar)
             }
 
-            if !model.hasAPIKey {
+            if let warning = model.selectedTaskKeyWarning {
                 Divider()
                 HStack(spacing: 8) {
                     Image(systemName: "key.fill")
                         .foregroundStyle(.yellow)
-                    Text("Add your Anthropic API key to run tasks.")
+                    Text(warning)
                     Spacer()
-                    SettingsLink {
-                        Text("Open Settings…")
+                    Button("Open Settings…") {
+                        model.openSettings(.apiKeys)
                     }
                 }
                 .font(.callout)

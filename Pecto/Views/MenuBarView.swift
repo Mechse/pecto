@@ -28,8 +28,10 @@ struct MenuBarView: View {
             NSApp.activate(ignoringOtherApps: true)
         }
 
-        SettingsLink {
-            Text("Settings…")
+        Button("Settings…") {
+            model.openSettings()
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut(",")
 

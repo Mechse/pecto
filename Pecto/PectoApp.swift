@@ -20,10 +20,26 @@ struct PectoApp: App {
         .defaultLaunchBehavior(.suppressed)
         .commands {
             EditorFontCommands()
+            SettingsCommands(model: model)
         }
+    }
+}
 
-        Settings {
-            SettingsView(model: model)
+/// Settings is a route inside the main window, not a scene — removing the
+/// Settings scene also removes the automatic App-menu item and ⌘,, so this
+/// puts them back, pointed at the in-window route.
+struct SettingsCommands: Commands {
+    let model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                model.openSettings()
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            .keyboardShortcut(",")
         }
     }
 }
@@ -54,9 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Dock icon while any real window (main or Settings) is open; back to a
-    /// pure menu-bar agent when the last one closes. Panels (the notch
-    /// indicator) and the status-bar window never count.
+    /// Dock icon while the main window is open; back to a pure menu-bar
+    /// agent when it closes. Panels (the notch indicator) and the status-bar
+    /// window never count.
     private static func syncActivationPolicy() {
         let hasUserWindow = NSApp.windows.contains { window in
             window.isVisible && window.styleMask.contains(.titled) && !(window is NSPanel)

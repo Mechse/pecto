@@ -91,12 +91,8 @@ struct APIErrorEnvelope: Decodable {
 }
 
 /// Direct, non-streaming call to the Anthropic Messages API — no SDK.
-public struct AnthropicClient: Sendable {
-    public static let defaultModel = "claude-sonnet-4-5"
-    /// Choices offered in the per-task model picker, besides the default.
-    /// A task file may carry any model string; unknown ones are still honored.
-    public static let selectableModels = ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"]
-    public static let maxTokens = 8192
+public struct AnthropicClient: ModelProviderClient, Sendable {
+    public let id: ProviderID = .anthropic
 
     let session: URLSession
     let baseURL: URL
@@ -111,9 +107,12 @@ public struct AnthropicClient: Sendable {
 
     public func run(
         prompt: RunPrompt,
-        apiKey: String,
-        model: String = AnthropicClient.defaultModel
+        apiKey: String?,
+        model: String = ProviderCatalog.defaultModelRef.model
     ) async throws -> RunOutput {
+        guard let apiKey else {
+            throw RunError("Add your Anthropic API key in Pecto's Settings first.")
+        }
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
         request.httpMethod = "POST"
         request.timeoutInterval = 300
@@ -123,7 +122,7 @@ public struct AnthropicClient: Sendable {
         request.httpBody = try JSONEncoder().encode(
             MessagesRequest(
                 model: model,
-                maxTokens: Self.maxTokens,
+                maxTokens: ProviderCatalog.maxTokens,
                 system: prompt.system,
                 messages: [.init(role: "user", content: prompt.user)]
             )
@@ -158,5 +157,26 @@ public struct AnthropicClient: Sendable {
                 outputTokens: decoded.usage?.outputTokens
             )
         )
+    }
+
+    public func validateKey(_ apiKey: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/models"))
+        request.timeoutInterval = 30
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch {
+            throw RunError("Couldn't reach the Anthropic API. Check your internet connection and try again.")
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            if status == 401 || status == 403 {
+                throw RunError("Anthropic rejected the API key. Check it in Pecto's Settings.")
+            }
+            throw RunError("The Anthropic API returned an error (HTTP \(status)).")
+        }
     }
 }

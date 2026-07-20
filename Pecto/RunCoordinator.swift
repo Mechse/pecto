@@ -25,7 +25,7 @@ struct PendingConfirmation: Equatable {
     let requestedAt: Date
 }
 
-/// Executes a shortcut-slot run: clipboard in → Anthropic → clipboard out.
+/// Executes a shortcut-slot run: clipboard in → model → clipboard out.
 /// Failures and refusals are reported loudly (notification + window status
 /// bar); success is deliberately quiet — just the brief notch flash — since
 /// "it worked, paste away" is the expected outcome, not news.
@@ -34,7 +34,7 @@ struct PendingConfirmation: Equatable {
 @Observable
 final class RunCoordinator {
     private let settings: SettingsStore
-    private let client = AnthropicClient()
+    private let providers: ProviderRegistry
 
     /// Injected by AppModel; swapped when the workspace changes.
     var history: HistoryStore?
@@ -63,8 +63,9 @@ final class RunCoordinator {
         }
     }
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, providers: ProviderRegistry) {
         self.settings = settings
+        self.providers = providers
     }
 
     func fire(slot: Int) {
@@ -172,7 +173,19 @@ final class RunCoordinator {
             task: task.frontmatter,
             filledInstructions: fillPlaceholders(task.instructions, values: values)
         )
-        let model = task.frontmatter.model ?? AnthropicClient.defaultModel
+        let ref = ModelRef.parse(
+            task.frontmatter.model ?? settings.defaultModel ?? ProviderCatalog.defaultModelRef.qualified
+        )
+        let info = ProviderCatalog.info(for: ref.provider)
+        guard let client = providers.client(for: ref.provider) else {
+            report(
+                path: path,
+                kind: .refusal,
+                title: "\(name) can't run",
+                body: "\(info.displayName) isn't available on this Mac."
+            )
+            return
+        }
 
         let startedAt = Self.nowMilliseconds()
         runningPaths.insert(path)
@@ -180,19 +193,26 @@ final class RunCoordinator {
             // The keychain read happens off the main actor: it can block on
             // a permission prompt (fresh dev signatures re-ask), and that
             // must not freeze the app mid-run.
-            guard let apiKey = await Task.detached(operation: { KeychainService.loadAPIKey() }).value else {
-                report(
-                    path: path,
-                    kind: .refusal,
-                    title: "\(name) can't run yet",
-                    body: "Add your Anthropic API key in Pecto's Settings first."
-                )
-                runningPaths.remove(path)
-                return
+            let apiKey: String?
+            if info.requiresAPIKey {
+                let provider = ref.provider
+                guard let key = await Task.detached(operation: { KeychainService.loadAPIKey(for: provider) }).value else {
+                    report(
+                        path: path,
+                        kind: .refusal,
+                        title: "\(name) can't run yet",
+                        body: "Add your \(info.displayName) API key in Pecto's Settings first."
+                    )
+                    runningPaths.remove(path)
+                    return
+                }
+                apiKey = key
+            } else {
+                apiKey = nil
             }
             do {
-                let output = try await client.run(prompt: prompt, apiKey: apiKey, model: model)
-                record(path: path, startedAt: startedAt, status: .succeeded, model: model, output: output.text, error: nil, usage: output.usage, inputs: values)
+                let output = try await client.run(prompt: prompt, apiKey: apiKey, model: ref.model)
+                record(path: path, startedAt: startedAt, status: .succeeded, model: ref.qualified, output: output.text, error: nil, usage: output.usage, inputs: values)
                 if output.text.isEmpty {
                     report(
                         path: path,
@@ -211,7 +231,7 @@ final class RunCoordinator {
                 }
             } catch {
                 let reason = (error as? RunError)?.message ?? error.localizedDescription
-                record(path: path, startedAt: startedAt, status: .failed, model: model, output: nil, error: reason, usage: nil, inputs: values)
+                record(path: path, startedAt: startedAt, status: .failed, model: ref.qualified, output: nil, error: reason, usage: nil, inputs: values)
                 report(
                     path: path,
                     kind: .failure,

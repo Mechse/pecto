@@ -1,21 +1,27 @@
 import Foundation
+import PectoKit
 import Security
 
-/// The Anthropic API key lives in the login keychain, never in UserDefaults.
+/// API keys live in the login keychain, never in UserDefaults — one entry
+/// per provider. The Anthropic account name predates providers, so existing
+/// keys are found without migration.
 enum KeychainService {
     private static let service = "Pecto"
-    private static let account = "anthropic-api-key"
 
-    private static var baseQuery: [String: Any] {
+    private static func account(for provider: ProviderID) -> String {
+        "\(provider.rawValue)-api-key"
+    }
+
+    private static func baseQuery(for provider: ProviderID) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account(for: provider),
         ]
     }
 
-    static func loadAPIKey() -> String? {
-        var query = baseQuery
+    static func loadAPIKey(for provider: ProviderID) -> String? {
+        var query = baseQuery(for: provider)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
@@ -27,25 +33,25 @@ enum KeychainService {
         return key
     }
 
-    static func saveAPIKey(_ key: String) {
+    static func saveAPIKey(_ key: String, for provider: ProviderID) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            deleteAPIKey()
+            deleteAPIKey(for: provider)
             return
         }
         let data = Data(trimmed.utf8)
         let status = SecItemUpdate(
-            baseQuery as CFDictionary,
+            baseQuery(for: provider) as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
         if status == errSecItemNotFound {
-            var add = baseQuery
+            var add = baseQuery(for: provider)
             add[kSecValueData as String] = data
             SecItemAdd(add as CFDictionary, nil)
         }
     }
 
-    static func deleteAPIKey() {
-        SecItemDelete(baseQuery as CFDictionary)
+    static func deleteAPIKey(for provider: ProviderID) {
+        SecItemDelete(baseQuery(for: provider) as CFDictionary)
     }
 }

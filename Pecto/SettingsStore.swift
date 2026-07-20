@@ -13,16 +13,21 @@ final class SettingsStore {
     private static let slotAssignmentsKey = "slotAssignments"
     private static let didSeedWorkspaceKey = "didSeedWorkspace"
     private static let showRunningIndicatorKey = "showRunningIndicator"
+    private static let defaultModelKey = "defaultModel"
 
     private(set) var workspacePath: String
     /// Slot number (1–9) → task filename.
     private(set) var slotAssignments: [Int: String]
     /// Whether the notch/top-of-screen pill appears while a task runs.
     private(set) var showRunningIndicator: Bool
+    /// Provider-qualified model ref for tasks without their own `model:`;
+    /// nil falls back to the built-in default.
+    private(set) var defaultModel: String?
 
     init() {
         workspacePath = defaults.string(forKey: Self.workspacePathKey) ?? ""
         showRunningIndicator = defaults.object(forKey: Self.showRunningIndicatorKey) as? Bool ?? true
+        defaultModel = defaults.string(forKey: Self.defaultModelKey)
         let stored = defaults.dictionary(forKey: Self.slotAssignmentsKey) as? [String: String] ?? [:]
         slotAssignments = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
             Int(key).map { ($0, value) }
@@ -63,6 +68,17 @@ final class SettingsStore {
                 }
             }
             defaults.set(true, forKey: Self.didSeedWorkspaceKey)
+        }
+    }
+
+    // MARK: - Default model
+
+    func setDefaultModel(_ ref: String?) {
+        defaultModel = ref
+        if let ref {
+            defaults.set(ref, forKey: Self.defaultModelKey)
+        } else {
+            defaults.removeObject(forKey: Self.defaultModelKey)
         }
     }
 

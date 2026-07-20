@@ -25,7 +25,9 @@ struct TaskListView: View {
             }
         }
         .toolbar {
-            SettingsLink {
+            Button {
+                model.openSettings()
+            } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Open Settings (⌘,)")
