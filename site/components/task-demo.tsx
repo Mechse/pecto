@@ -69,16 +69,22 @@ sender's voice.
 
       {/* The trigger */}
       <div className="flex items-center justify-center gap-3 py-4">
-        <KeyChord keys={["⌃", "⌥", "1"]} pressed={phase === "press" || running} />
-        <span
-          className={cn(
-            "text-xs text-muted-foreground transition-opacity duration-300",
-            running ? "opacity-100" : "opacity-0",
-          )}
-          aria-hidden={!running}
-        >
-          running…
-        </span>
+        {running ? (
+          <span
+            className={cn(
+              "text-xs text-muted-foreground transition-opacity duration-300 min-h-7 inline-flex items-center",
+              running ? "opacity-100" : "opacity-0",
+            )}
+            aria-hidden={!running}
+          >
+            running…
+          </span>
+        ) : (
+          <KeyChord
+            keys={["⌃", "⌥", "1"]}
+            pressed={phase === "press" || running}
+          />
+        )}
       </div>
 
       {/* The clipboard, before → after */}
