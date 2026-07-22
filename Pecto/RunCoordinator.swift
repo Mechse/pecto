@@ -14,6 +14,18 @@ struct RunOutcome: Equatable {
     let kind: Kind
     let message: String
     let at: Date
+    /// The result text, on success only — kept in memory so the expanded
+    /// notch can preview it and put it back on the clipboard later.
+    let output: String?
+}
+
+/// A run currently in flight, with what the expanded notch needs to show:
+/// which task, since when, and (once resolved) which model.
+struct ActiveRun: Equatable {
+    let path: String
+    let taskName: String
+    let startedAt: Date
+    var model: String?
 }
 
 /// A run that stopped pre-flight because the task wants the clipboard but it
@@ -41,13 +53,20 @@ final class RunCoordinator {
     var history: HistoryStore?
     var onHistoryChanged: (() -> Void)?
 
-    private(set) var runningPaths: Set<String> = []
+    /// In-flight runs keyed by task path.
+    private(set) var activeRuns: [String: ActiveRun] = [:]
+    /// The handles behind `activeRuns`, so a run can be cancelled.
+    private var runTasks: [String: Task<Void, Never>] = [:]
     private(set) var lastOutcome: RunOutcome?
     private(set) var pendingConfirmation: PendingConfirmation?
     private var pendingExpiryTask: Task<Void, Never>?
     private static let confirmationTimeout: Duration = .seconds(8)
 
-    var isRunning: Bool { !runningPaths.isEmpty }
+    /// The paths of in-flight runs — the shape the menu bar, editor and notch
+    /// have always read.
+    var runningPaths: Set<String> { Set(activeRuns.keys) }
+
+    var isRunning: Bool { !activeRuns.isEmpty }
 
     func clearOutcome() {
         lastOutcome = nil
@@ -57,8 +76,20 @@ final class RunCoordinator {
     /// background runs) and the in-window status bar (always visible).
     /// Success only records `lastOutcome` for the notch's short-lived flash —
     /// no notification, and the status bar skips success outcomes.
-    private func report(path: String, kind: RunOutcome.Kind, title: String, body: String) {
-        lastOutcome = RunOutcome(taskPath: path, kind: kind, message: "\(title) — \(body)", at: Date())
+    private func report(
+        path: String,
+        kind: RunOutcome.Kind,
+        title: String,
+        body: String,
+        output: String? = nil
+    ) {
+        lastOutcome = RunOutcome(
+            taskPath: path,
+            kind: kind,
+            message: "\(title) — \(body)",
+            at: Date(),
+            output: output
+        )
         if kind != .success {
             NotificationService.post(title: title, body: body)
         }
@@ -89,6 +120,27 @@ final class RunCoordinator {
 
     func cancelPending() {
         clearPending()
+    }
+
+    /// Stops an in-flight run from the expanded notch. The request is torn
+    /// down mid-flight (URLSession honours task cancellation), so the
+    /// clipboard is never written. Reported here rather than in the run body,
+    /// which stays silent about cancellation to avoid a double message.
+    func cancel(path: String) {
+        guard let run = activeRuns[path] else { return }
+        runTasks.removeValue(forKey: path)?.cancel()
+        activeRuns.removeValue(forKey: path)
+        report(
+            path: path,
+            kind: .refusal,
+            title: "\(run.taskName) stopped",
+            body: "Cancelled before it finished — your clipboard is unchanged."
+        )
+    }
+
+    private func finish(_ path: String) {
+        activeRuns.removeValue(forKey: path)
+        runTasks.removeValue(forKey: path)
     }
 
     private func clearPending() {
@@ -163,8 +215,10 @@ final class RunCoordinator {
             filledInstructions: fillPlaceholders(task.instructions, values: values)
         )
         let startedAt = Self.nowMilliseconds()
-        runningPaths.insert(path)
-        Task {
+        activeRuns[path] = ActiveRun(path: path, taskName: name, startedAt: Date(), model: nil)
+        // The task body only starts at the enclosing function's next
+        // suspension point, so the handle is always stored before it can run.
+        runTasks[path] = Task {
             // Model resolution can await the launch-time keychain scan, so it
             // lives in here rather than in the synchronous pre-flight above.
             let ref: ModelRef
@@ -179,9 +233,11 @@ final class RunCoordinator {
                     title: "\(name) can't run yet",
                     body: "No model is set up yet. Add an API key in Pecto's Settings, or turn on Apple Intelligence."
                 )
-                runningPaths.remove(path)
+                finish(path)
                 return
             }
+            // Now that it's known, the expanded notch can name the model.
+            activeRuns[path]?.model = ref.qualified
 
             let info = ProviderCatalog.info(for: ref.provider)
             guard let client = providers.client(for: ref.provider) else {
@@ -191,7 +247,7 @@ final class RunCoordinator {
                     title: "\(name) can't run",
                     body: "\(info.displayName) isn't available on this Mac."
                 )
-                runningPaths.remove(path)
+                finish(path)
                 return
             }
 
@@ -208,7 +264,7 @@ final class RunCoordinator {
                         title: "\(name) can't run yet",
                         body: "Add your \(info.displayName) API key in Pecto's Settings first."
                     )
-                    runningPaths.remove(path)
+                    finish(path)
                     return
                 }
                 apiKey = key
@@ -231,10 +287,19 @@ final class RunCoordinator {
                         path: path,
                         kind: .success,
                         title: "\(name) finished",
-                        body: "The result is on your clipboard — paste away."
+                        body: "The result is on your clipboard — paste away.",
+                        output: output.text
                     )
                 }
             } catch {
+                // The run reached the API, so it stays in history — but
+                // `cancel(path:)` already told the user, and the clipboard was
+                // never touched, so say nothing more here.
+                guard !Task.isCancelled else {
+                    record(path: path, startedAt: startedAt, status: .failed, model: ref.qualified, output: nil, error: "Cancelled.", usage: nil, inputs: values)
+                    finish(path)
+                    return
+                }
                 let reason = (error as? RunError)?.message ?? error.localizedDescription
                 record(path: path, startedAt: startedAt, status: .failed, model: ref.qualified, output: nil, error: reason, usage: nil, inputs: values)
                 report(
@@ -244,7 +309,7 @@ final class RunCoordinator {
                     body: "\(reason) Your clipboard is unchanged."
                 )
             }
-            runningPaths.remove(path)
+            finish(path)
         }
     }
 

@@ -14,19 +14,34 @@ struct NotchIndicatorView: View {
     /// Minimum wing on either side of the notch so the bar reads as a wide
     /// strip even when the status text is short.
     private static let minWingWidth: CGFloat = 150
+    /// Expanded, the wings also have to carry the card below them — a run row
+    /// with a name, model, timer and a stop button needs the room.
+    private static let expandedMinWingWidth: CGFloat = 230
     /// How far the bar extends below the notch strip.
     private static let bottomExtension: CGFloat = 10
+    /// Width of the free-floating card on displays without a notch.
+    private static let capsuleCardWidth: CGFloat = 460
 
     /// Wings share one width (the widest content, floored at the minimum) so
     /// the bar stays symmetric and the clear gap stays over the physical notch.
     private var wingWidth: CGFloat {
-        max(Self.minWingWidth, leftWingWidth, rightWingWidth)
+        max(
+            controller.isExpanded ? Self.expandedMinWingWidth : Self.minWingWidth,
+            leftWingWidth,
+            rightWingWidth
+        )
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if controller.state != .hidden {
                 pill
+                    // The shape's rect drives both the hover hot zone and the
+                    // panel's hit region — everything outside it stays
+                    // click-through over the menu bar.
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                        controller.shapeRectChanged($0)
+                    }
                     .transition(.scale(scale: 0.6, anchor: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -36,6 +51,7 @@ struct NotchIndicatorView: View {
         // must not inset the content a second time.
         .ignoresSafeArea()
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: controller.state)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: controller.isExpanded)
         .environment(\.colorScheme, .dark)
     }
 
@@ -44,31 +60,62 @@ struct NotchIndicatorView: View {
         let geometry = controller.geometry
         if geometry.hasNotch {
             // The wings draw over the menu bar (panel level is .statusBar);
-            // the shape must be pure black to blend with the cutout.
-            HStack(spacing: 0) {
-                leftContent
-                    .fixedSize()
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { leftWingWidth = $0 }
-                    .frame(width: wingWidth, alignment: .leading)
-                Color.clear
-                    .frame(width: geometry.notchWidth)
-                rightContent
-                    .fixedSize()
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rightWingWidth = $0 }
-                    .frame(width: wingWidth, alignment: .trailing)
+            // the shape must be pure black to blend with the cutout. Expanded,
+            // the same black grows downward into a card — one continuous
+            // shape, as if the notch itself had opened.
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    leftContent
+                        .fixedSize()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { leftWingWidth = $0 }
+                        .frame(width: wingWidth, alignment: .leading)
+                    Color.clear
+                        .frame(width: geometry.notchWidth)
+                    rightContent
+                        .fixedSize()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rightWingWidth = $0 }
+                        .frame(width: wingWidth, alignment: .trailing)
+                }
+                .frame(height: geometry.topInset + Self.bottomExtension)
+
+                if controller.isExpanded {
+                    expandedBody
+                        .frame(width: wingWidth * 2 + geometry.notchWidth)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
-            .frame(height: geometry.topInset + Self.bottomExtension)
             .background(
                 Color.black,
-                in: UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14)
+                in: UnevenRoundedRectangle(
+                    bottomLeadingRadius: controller.isExpanded ? 20 : 14,
+                    bottomTrailingRadius: controller.isExpanded ? 20 : 14
+                )
+            )
+            .clipShape(
+                UnevenRoundedRectangle(
+                    bottomLeadingRadius: controller.isExpanded ? 20 : 14,
+                    bottomTrailingRadius: controller.isExpanded ? 20 : 14
+                )
             )
         } else {
-            inlineContent
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(.black.opacity(0.95)))
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
-                .padding(.top, geometry.topInset + 6)
+            VStack(spacing: 0) {
+                inlineContent
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+
+                if controller.isExpanded {
+                    expandedBody
+                        .frame(width: Self.capsuleCardWidth)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .background(
+                .black.opacity(0.95),
+                in: RoundedRectangle(cornerRadius: controller.isExpanded ? 18 : 999)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: controller.isExpanded ? 18 : 999))
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+            .padding(.top, geometry.topInset + 6)
         }
     }
 
@@ -133,6 +180,74 @@ struct NotchIndicatorView: View {
         }
     }
 
+    // MARK: - Expanded card
+
+    /// What the strip reveals when the cursor comes near: what's running and
+    /// for how long, a way to stop it, and the last result to copy again.
+    @ViewBuilder
+    private var expandedBody: some View {
+        let runs = controller.activeRuns
+        VStack(alignment: .leading, spacing: 16) {
+            Divider().overlay(Color.white.opacity(0.12))
+
+            // The buttons live in the header, an inch above and already in
+            // reach — repeating them here would just be two of everything.
+            if isAwaitingConfirmation {
+                section("Waiting on you") {
+                    Text("This task reads your clipboard, but there's nothing on it. Run it anyway, or copy something and press the shortcut again.")
+                        .foregroundStyle(.white.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if !runs.isEmpty {
+                section(runs.count == 1 ? "Running" : "Running (\(runs.count))") {
+                    ForEach(runs, id: \.path) { run in
+                        RunDetailRow(run: run) {
+                            controller.cancelRun(path: run.path)
+                        }
+                    }
+                }
+            }
+
+            if let output = controller.lastOutput {
+                section(controller.lastOutputTaskName.map { "Last result — \($0)" } ?? "Last result") {
+                    LastOutputSection(output: output) {
+                        controller.copyLastOutput()
+                    }
+                }
+            }
+
+            if runs.isEmpty, controller.lastOutput == nil, !isAwaitingConfirmation {
+                Text("Nothing running.")
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+        .font(Self.pixelFont)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 14)
+    }
+
+    /// A titled block. The title hugs its own content, so the gap between
+    /// sections always reads wider than the gap inside one.
+    private func section<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+                .lineLimit(1)
+            content()
+        }
+    }
+
+    private var isAwaitingConfirmation: Bool {
+        if case .awaitingConfirmation = controller.state { return true }
+        return false
+    }
+
     // MARK: - Capsule content (displays without a notch)
 
     @ViewBuilder
@@ -184,6 +299,91 @@ struct NotchIndicatorView: View {
         case .failure: .red
         case .refusal: .yellow
         }
+    }
+}
+
+/// One in-flight run in the expanded card: what it is, which model, how long
+/// it's been going, and a way to stop it.
+private struct RunDetailRow: View {
+    let run: ActiveRun
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            PixelEqualizer()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(run.taskName)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(run.model.map(Self.shortModel) ?? "resolving model…")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            // Ticks a little faster than it displays, so the tenths never
+            // visibly stall.
+            TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                Text(Self.elapsed(since: run.startedAt, now: context.date))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .monospacedDigit()
+            }
+            Button {
+                onCancel()
+            } label: {
+                Image(systemName: "stop.fill")
+            }
+            .buttonStyle(NotchButtonStyle(prominent: false))
+            .help("Stop this run")
+        }
+    }
+
+    /// "anthropic:claude-sonnet-4-5" reads as its model name here — the card
+    /// is narrow and the provider is implied by the name.
+    private static func shortModel(_ qualified: String) -> String {
+        qualified.split(separator: ":").last.map(String.init) ?? qualified
+    }
+
+    private static func elapsed(since start: Date, now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(start))
+        if seconds < 60 {
+            return String(format: "%.1fs", seconds)
+        }
+        return String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+}
+
+/// The last successful result: a few lines of it, and a way to put it back on
+/// the clipboard — by the time you look, you may have copied something else.
+private struct LastOutputSection: View {
+    let output: String
+    let onCopy: () -> Void
+
+    @State private var didCopy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(output)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Button(didCopy ? "Copied" : "Copy again") {
+                    onCopy()
+                    didCopy = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        didCopy = false
+                    }
+                }
+                .buttonStyle(NotchButtonStyle(prominent: !didCopy))
+                Spacer(minLength: 0)
+            }
+        }
+        // A new result resets the button even if the old label was still up.
+        .onChange(of: output) { didCopy = false }
     }
 }
 

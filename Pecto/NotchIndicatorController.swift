@@ -21,11 +21,17 @@ enum IndicatorState: Equatable {
 final class NotchIndicatorController {
     private(set) var state: IndicatorState = .hidden
     private(set) var geometry = IndicatorGeometry(hasNotch: false, notchWidth: 0, topInset: 24)
+    /// The cursor is near the indicator, so it shows its details.
+    private(set) var isExpanded = false
 
-    /// Room for the bar at its widest (a wing either side of the notch); the
-    /// panel never resizes.
-    private static let stageSize = NSSize(width: 1000, height: 140)
+    /// Room for the bar at its widest and the expanded card at its tallest;
+    /// the panel never resizes, so the stage is sized for the largest state
+    /// and stays transparent (and click-through) everywhere else.
+    private static let stageSize = NSSize(width: 1000, height: 420)
     private static let flashDuration: Duration = .seconds(2.5)
+    /// What's left of the flash after the cursor leaves a held one — long
+    /// enough to register the result, short enough not to linger.
+    private static let flashTail: Duration = .milliseconds(1200)
     /// Long enough for the shrink-away transition to finish before orderOut.
     private static let hideDelay: Duration = .milliseconds(450)
 
@@ -34,6 +40,11 @@ final class NotchIndicatorController {
     private let nameForPath: (String) -> String
 
     private var panel: NotchIndicatorPanel?
+    private var host: NotchHitTestingView<NotchIndicatorView>?
+    private var hoverMonitor: NotchHoverMonitor?
+    /// Last shape rect reported by the view, kept so the hot zone can be
+    /// recomputed when the panel moves without the shape changing.
+    private var shapeRect: CGRect = .zero
     /// Outcomes older than this have already been flashed (or predate launch).
     private var lastHandledOutcome: RunOutcome?
     private var isFlashing = false
@@ -119,7 +130,25 @@ final class NotchIndicatorController {
         }
     }
 
-    // MARK: - Confirmation passthroughs (called by the notch's buttons)
+    // MARK: - What the expanded card shows
+
+    /// In-flight runs, oldest first — the order they'll finish in, roughly,
+    /// and stable while the card is open.
+    var activeRuns: [ActiveRun] {
+        runner.activeRuns.values.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    /// The last result worth offering again: text output from a success.
+    var lastOutput: String? {
+        guard let outcome = runner.lastOutcome, outcome.kind == .success else { return nil }
+        return outcome.output
+    }
+
+    var lastOutputTaskName: String? {
+        runner.lastOutcome.map { nameForPath($0.taskPath) }
+    }
+
+    // MARK: - Actions (called by the notch's buttons)
 
     func confirmPending() {
         runner.confirmPending()
@@ -129,6 +158,64 @@ final class NotchIndicatorController {
         runner.cancelPending()
     }
 
+    func cancelRun(path: String) {
+        runner.cancel(path: path)
+    }
+
+    /// Puts the last result back on the clipboard — the point of keeping it
+    /// around is that you may have copied something else since.
+    func copyLastOutput() {
+        guard let text = lastOutput else { return }
+        ClipboardService.writeText(text)
+    }
+
+    // MARK: - Expansion
+
+    /// Reported by the view: the visible shape's rect inside the stage, in
+    /// SwiftUI's top-left coordinates. It's the single source for both the
+    /// hover hot zone and the panel's hit region, so the two can never
+    /// disagree — you can always click what you just hovered open.
+    func shapeRectChanged(_ rect: CGRect) {
+        shapeRect = rect
+        refreshHotZone()
+    }
+
+    private func refreshHotZone() {
+        guard let panel, shapeRect != .zero else { return }
+        host?.interactiveRect = shapeRect
+        let margin: CGFloat = isExpanded ? 16 : 10
+        hoverMonitor?.hotZone = CGRect(
+            x: panel.frame.minX + shapeRect.minX,
+            // SwiftUI measures from the top; screen coordinates run upward.
+            y: panel.frame.maxY - shapeRect.maxY,
+            width: shapeRect.width,
+            height: shapeRect.height
+        ).insetBy(dx: -margin, dy: -margin)
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        guard isExpanded != expanded else { return }
+        isExpanded = expanded
+        updateMouseHandling()
+        // Widen the zone immediately on expand; the view reports the card's
+        // real rect a frame later.
+        refreshHotZone()
+        // A flash under the cursor is being read; hold it open and leave only
+        // a short tail once the cursor goes away.
+        if isFlashing {
+            flashTask?.cancel()
+            flashTask = expanded ? nil : makeFlashTask(after: Self.flashTail)
+        }
+    }
+
+    /// The panel takes clicks while it's asking a question or showing its
+    /// details; in every other state it stays a click-through overlay so the
+    /// menu bar underneath keeps working.
+    private func updateMouseHandling() {
+        let interactive = isExpanded || { if case .awaitingConfirmation = state { true } else { false } }()
+        panel?.ignoresMouseEvents = !interactive
+    }
+
     private func beginFlash(_ outcome: RunOutcome) {
         isFlashing = true
         // The pill is glanceable: show only the headline ("Summarize
@@ -136,8 +223,14 @@ final class NotchIndicatorController {
         let headline = outcome.message.components(separatedBy: " — ").first ?? outcome.message
         setState(.flash(kind: outcome.kind, message: Self.abbreviate(headline)))
         flashTask?.cancel()
-        flashTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.flashDuration)
+        // A flash that arrives while the card is open waits for the cursor to
+        // leave, the same as one hovered mid-flight.
+        flashTask = isExpanded ? nil : makeFlashTask(after: Self.flashDuration)
+    }
+
+    private func makeFlashTask(after duration: Duration) -> Task<Void, Never> {
+        Task { [weak self] in
+            try? await Task.sleep(for: duration)
             guard !Task.isCancelled, let self else { return }
             self.isFlashing = false
             self.sync()
@@ -150,6 +243,10 @@ final class NotchIndicatorController {
         guard state != new else { return }
         if new == .hidden {
             state = .hidden
+            // Nothing left to look at: stop tracking and collapse, so the
+            // next run never opens pre-expanded under a parked cursor.
+            hoverMonitor?.stop()
+            isExpanded = false
             hideTask?.cancel()
             hideTask = Task { [weak self] in
                 try? await Task.sleep(for: Self.hideDelay)
@@ -161,14 +258,9 @@ final class NotchIndicatorController {
             hideTask = nil
             showPanel()
             state = new
+            hoverMonitor?.start()
         }
-        // The panel takes clicks only while asking a question; in every other
-        // state it stays a click-through overlay.
-        if case .awaitingConfirmation = new {
-            panel?.ignoresMouseEvents = false
-        } else {
-            panel?.ignoresMouseEvents = true
-        }
+        updateMouseHandling()
     }
 
     private func showPanel() {
@@ -187,6 +279,10 @@ final class NotchIndicatorController {
             display: true
         )
         panel.orderFrontRegardless()
+        // The panel may have landed on a different screen; the shape sits at
+        // a new place in screen coordinates even if its rect on the stage is
+        // unchanged.
+        refreshHotZone()
     }
 
     /// A wing has no room for prose; the bar must never outgrow its stage.
@@ -239,15 +335,35 @@ final class NotchIndicatorController {
         panel.isReleasedWhenClosed = false
         panel.isMovable = false
         panel.animationBehavior = .none
-        let host = FirstMouseHostingView(rootView: NotchIndicatorView(controller: self))
+        let host = NotchHitTestingView(rootView: NotchIndicatorView(controller: self))
         host.frame = NSRect(origin: .zero, size: Self.stageSize)
         panel.contentView = host
+        self.host = host
+        hoverMonitor = NotchHoverMonitor { [weak self] hovering in
+            self?.setExpanded(hovering)
+        }
         return panel
     }
 }
 
-/// The panel never becomes key, so every click on it is a "first mouse";
-/// without this the confirmation buttons would need two clicks.
-private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+/// The stage is far larger than the shape drawn on it. While the panel takes
+/// clicks at all, only the visible shape may swallow them — the rest of the
+/// stage sits over the menu bar and must stay transparent to the mouse.
+///
+/// Also: the panel never becomes key, so every click on it is a "first
+/// mouse"; without that override the buttons would need two clicks.
+private final class NotchHitTestingView<Content: View>: NSHostingView<Content> {
+    /// The visible shape, in SwiftUI's top-left coordinates.
+    var interactiveRect: CGRect = .zero
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        // NSHostingView is flipped, so its coordinates already match the
+        // rect SwiftUI reported — but don't bet the hit region on that.
+        let topLeft = isFlipped ? local : NSPoint(x: local.x, y: bounds.height - local.y)
+        guard interactiveRect.contains(topLeft) else { return nil }
+        return super.hitTest(point)
+    }
 }
