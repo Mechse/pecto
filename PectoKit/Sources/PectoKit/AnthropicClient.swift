@@ -108,7 +108,7 @@ public struct AnthropicClient: ModelProviderClient, Sendable {
     public func run(
         prompt: RunPrompt,
         apiKey: String?,
-        model: String = ProviderCatalog.defaultModelRef.model
+        model: String = ProviderCatalog.info(for: .anthropic).defaultModel
     ) async throws -> RunOutput {
         guard let apiKey else {
             throw RunError("Add your Anthropic API key in Pecto's Settings first.")

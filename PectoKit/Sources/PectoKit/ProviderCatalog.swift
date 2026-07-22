@@ -59,8 +59,5 @@ public enum ProviderCatalog {
         all.first { $0.id == id }!
     }
 
-    /// Global fallback when neither the task nor settings pick a model.
-    public static let defaultModelRef = ModelRef(provider: .anthropic, model: "claude-sonnet-4-5")
-
     public static let maxTokens = 8192
 }

@@ -59,11 +59,9 @@ final class AppModel {
     private var needsRepairWrite = false
     /// One-shot message for failed file operations, shown as an alert.
     var operationError: String?
-    /// Providers with a key in the keychain — drives the missing-key banner
-    /// and the status dots in Settings.
-    private(set) var storedKeyProviders: Set<ProviderID> = []
-    /// Checked once at launch; drives the Apple rows in pickers and Settings.
-    let appleAvailability = AppleModelAvailability.check()
+    /// What this Mac can run with — keys in the keychain plus the on-device
+    /// model. Shared with the run pipeline.
+    let availability: ModelAvailability
     /// The main window's content — tasks, or the full-window Settings.
     var mainRoute: MainRoute = .tasks
 
@@ -78,10 +76,15 @@ final class AppModel {
 
     init() {
         let settings = SettingsStore()
+        let availability = ModelAvailability()
         self.settings = settings
-        self.runner = RunCoordinator(settings: settings, providers: providers)
+        self.availability = availability
+        self.runner = RunCoordinator(
+            settings: settings,
+            providers: providers,
+            availability: availability
+        )
         openHistoryStore()
-        refreshAPIKeyStatus()
         refresh()
 
         runner.onHistoryChanged = { [weak self] in
@@ -104,21 +107,17 @@ final class AppModel {
         )
     }
 
-    /// Off the main actor: reading the keychain can block on a permission
-    /// prompt (every fresh dev signature re-asks), and this runs during
-    /// launch — a synchronous read would freeze the app before the menu bar
-    /// icon or hotkeys exist.
+    // Forwarded from `availability` so views keep one entry point.
+
+    var appleAvailability: AppleModelAvailability { availability.apple }
+
+    /// Providers with a key in the keychain — drives the missing-key banner
+    /// and the status dots in Settings.
+    var storedKeyProviders: Set<ProviderID> { availability.storedKeyProviders }
+
+    /// Re-scans the keychain after a key is saved or removed.
     func refreshAPIKeyStatus() {
-        Task.detached(priority: .utility) { [weak self] in
-            let stored = Set(
-                ProviderCatalog.all
-                    .filter(\.requiresAPIKey)
-                    .map(\.id)
-                    .filter { KeychainService.loadAPIKey(for: $0) != nil }
-            )
-            guard let self else { return }
-            await MainActor.run { self.storedKeyProviders = stored }
-        }
+        availability.refresh()
     }
 
     // MARK: - Shortcuts
@@ -191,24 +190,22 @@ final class AppModel {
     // MARK: - Model resolution
 
     /// The model a task would actually run with: its own `model:`, else the
-    /// global default, else the built-in fallback.
-    func resolvedModelRef(forTaskModel raw: String?) -> ModelRef {
-        ModelRef.parse(raw ?? settings.defaultModel ?? ProviderCatalog.defaultModelRef.qualified)
+    /// global default, else whatever this Mac can do. Nil when it can't do
+    /// anything — no key stored and no on-device model.
+    func resolvedModelRef(forTaskModel raw: String?) -> ModelRef? {
+        if let raw { return ModelRef.parse(raw) }
+        if let stored = settings.defaultModel { return ModelRef.parse(stored) }
+        return availability.resolvedDefault
     }
 
-    /// Why the selected task can't run right now on the provider side —
-    /// missing key or unavailable on-device model. Nil when it's good to go.
-    /// With no selection it still nudges first-run users who have no keys.
-    var selectedTaskKeyWarning: String? {
-        guard selectedPath != nil else {
-            let defaultRef = resolvedModelRef(forTaskModel: nil)
-            let needsKey = ProviderCatalog.info(for: defaultRef.provider).requiresAPIKey
-            if needsKey, storedKeyProviders.isEmpty {
-                return "Add an API key to run tasks."
-            }
-            return nil
+    /// Why tasks can't run right now on the provider side — nothing set up at
+    /// all, a missing key, or an unavailable on-device model. Nil when it's
+    /// good to go. Judged against the selected task when there is one, so a
+    /// task that overrides the model warns about *its* provider.
+    var modelWarning: String? {
+        guard let ref = resolvedModelRef(forTaskModel: document?.frontmatter.model) else {
+            return "No model is set up yet — add an API key, or turn on Apple Intelligence, to run tasks."
         }
-        let ref = resolvedModelRef(forTaskModel: document?.frontmatter.model)
         let info = ProviderCatalog.info(for: ref.provider)
         if info.requiresAPIKey {
             guard !storedKeyProviders.contains(ref.provider) else { return nil }

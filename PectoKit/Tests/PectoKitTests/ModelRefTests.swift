@@ -51,9 +51,33 @@ struct ProviderCatalogTests {
             #expect(info.requiresAPIKey == (info.id != .apple))
         }
     }
+}
 
-    @Test func defaultRefMatchesAnthropicCatalogDefault() {
-        #expect(ProviderCatalog.defaultModelRef.provider == .anthropic)
-        #expect(ProviderCatalog.defaultModelRef.model == ProviderCatalog.info(for: .anthropic).defaultModel)
+struct DefaultModelResolutionTests {
+    private func resolve(_ keys: Set<ProviderID>, apple: Bool = false) -> ModelRef? {
+        DefaultModelResolution.resolve(storedKeyProviders: keys, appleAvailable: apple)
+    }
+
+    @Test func aStoredKeyBeatsTheOnDeviceModel() {
+        #expect(resolve([.openai], apple: true) == ModelRef(provider: .openai, model: "gpt-5.1"))
+    }
+
+    @Test func severalKeysFollowCatalogOrder() {
+        #expect(resolve([.openai, .anthropic, .xai])?.provider == .anthropic)
+        #expect(resolve([.gemini, .xai])?.provider == .gemini)
+    }
+
+    @Test func oneKeyPicksThatProvidersDefaultModel() {
+        for info in ProviderCatalog.all where info.requiresAPIKey {
+            #expect(resolve([info.id]) == ModelRef(provider: info.id, model: info.defaultModel))
+        }
+    }
+
+    @Test func withoutKeysTheOnDeviceModelIsUsedWhenAvailable() {
+        #expect(resolve([], apple: true) == ModelRef(provider: .apple, model: "on-device"))
+    }
+
+    @Test func nothingAvailableResolvesToNil() {
+        #expect(resolve([], apple: false) == nil)
     }
 }

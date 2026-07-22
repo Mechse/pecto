@@ -35,6 +35,7 @@ struct PendingConfirmation: Equatable {
 final class RunCoordinator {
     private let settings: SettingsStore
     private let providers: ProviderRegistry
+    private let availability: ModelAvailability
 
     /// Injected by AppModel; swapped when the workspace changes.
     var history: HistoryStore?
@@ -63,9 +64,10 @@ final class RunCoordinator {
         }
     }
 
-    init(settings: SettingsStore, providers: ProviderRegistry) {
+    init(settings: SettingsStore, providers: ProviderRegistry, availability: ModelAvailability) {
         self.settings = settings
         self.providers = providers
+        self.availability = availability
     }
 
     /// Shared by global shortcuts and the editor's Run button. Re-triggering
@@ -160,23 +162,39 @@ final class RunCoordinator {
             task: task.frontmatter,
             filledInstructions: fillPlaceholders(task.instructions, values: values)
         )
-        let ref = ModelRef.parse(
-            task.frontmatter.model ?? settings.defaultModel ?? ProviderCatalog.defaultModelRef.qualified
-        )
-        let info = ProviderCatalog.info(for: ref.provider)
-        guard let client = providers.client(for: ref.provider) else {
-            report(
-                path: path,
-                kind: .refusal,
-                title: "\(name) can't run",
-                body: "\(info.displayName) isn't available on this Mac."
-            )
-            return
-        }
-
         let startedAt = Self.nowMilliseconds()
         runningPaths.insert(path)
         Task {
+            // Model resolution can await the launch-time keychain scan, so it
+            // lives in here rather than in the synchronous pre-flight above.
+            let ref: ModelRef
+            if let raw = task.frontmatter.model ?? settings.defaultModel {
+                ref = ModelRef.parse(raw)
+            } else if let auto = await availability.resolvedDefaultAwaitingKeys() {
+                ref = auto
+            } else {
+                report(
+                    path: path,
+                    kind: .refusal,
+                    title: "\(name) can't run yet",
+                    body: "No model is set up yet. Add an API key in Pecto's Settings, or turn on Apple Intelligence."
+                )
+                runningPaths.remove(path)
+                return
+            }
+
+            let info = ProviderCatalog.info(for: ref.provider)
+            guard let client = providers.client(for: ref.provider) else {
+                report(
+                    path: path,
+                    kind: .refusal,
+                    title: "\(name) can't run",
+                    body: "\(info.displayName) isn't available on this Mac."
+                )
+                runningPaths.remove(path)
+                return
+            }
+
             // The keychain read happens off the main actor: it can block on
             // a permission prompt (fresh dev signatures re-ask), and that
             // must not freeze the app mid-run.

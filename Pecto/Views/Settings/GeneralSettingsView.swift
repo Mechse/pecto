@@ -11,12 +11,12 @@ struct GeneralSettingsView: View {
             Section {
                 ModelPickerView(
                     title: "Default model",
-                    defaultOptionLabel: "Built-in (\(ProviderCatalog.defaultModelRef.qualified))",
+                    defaultOptionLabel: automaticLabel,
                     appleAvailable: model.appleAvailability.isAvailable,
                     selection: defaultModelBinding
                 )
             } footer: {
-                Text("Used by tasks that don't pick their own model. Each task can override it in its configuration.")
+                Text("Used by tasks that don't pick their own model. Automatic uses your first configured API key, or the on-device model if you have no key. Each task can override it in its configuration.")
             }
 
             Section("Shortcuts") {
@@ -62,6 +62,13 @@ struct GeneralSettingsView: View {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             notificationsAuthorized = settings.authorizationStatus == .authorized
         }
+    }
+
+    /// Names what "Automatic" resolves to right now, so the picker never hides
+    /// which model a run will actually use.
+    private var automaticLabel: String {
+        model.availability.resolvedDefault
+            .map { "Automatic (\($0.qualified))" } ?? "Automatic — no model available"
     }
 
     private var defaultModelBinding: Binding<String?> {

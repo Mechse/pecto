@@ -83,7 +83,7 @@ struct MainWindowView: View {
                 .background(.bar)
             }
 
-            if let warning = model.selectedTaskKeyWarning {
+            if let warning = model.modelWarning {
                 Divider()
                 HStack(spacing: 8) {
                     Image(systemName: "key.fill")

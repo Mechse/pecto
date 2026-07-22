@@ -55,7 +55,8 @@ struct TaskConfigView: View {
             Section {
                 ModelPickerView(
                     title: "Model",
-                    defaultOptionLabel: "Default (\(model.resolvedModelRef(forTaskModel: nil).qualified))",
+                    defaultOptionLabel: model.resolvedModelRef(forTaskModel: nil)
+                        .map { "Default (\($0.qualified))" } ?? "Default — no model configured",
                     appleAvailable: model.appleAvailability.isAvailable,
                     selection: modelBinding
                 )
