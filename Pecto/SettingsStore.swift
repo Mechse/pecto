@@ -2,22 +2,23 @@ import Foundation
 import Observation
 import PectoKit
 
-/// Persisted app settings: the workspace folder and the shortcut-slot map.
+/// Persisted app settings: the workspace folder and the task→shortcut map.
 @MainActor
 @Observable
 final class SettingsStore {
-    static let slotCount = 9
-
     private let defaults = UserDefaults.standard
     private static let workspacePathKey = "workspacePath"
-    private static let slotAssignmentsKey = "slotAssignments"
+    private static let shortcutsKey = "taskShortcuts"
+    /// Pre-recording shortcut model (slot number → task filename); read once
+    /// for migration, then deleted.
+    private static let legacySlotAssignmentsKey = "slotAssignments"
     private static let didSeedWorkspaceKey = "didSeedWorkspace"
     private static let showRunningIndicatorKey = "showRunningIndicator"
     private static let defaultModelKey = "defaultModel"
 
     private(set) var workspacePath: String
-    /// Slot number (1–9) → task filename.
-    private(set) var slotAssignments: [Int: String]
+    /// Task filename → the global shortcut that runs it.
+    private(set) var shortcuts: [String: Shortcut]
     /// Whether the notch/top-of-screen pill appears while a task runs.
     private(set) var showRunningIndicator: Bool
     /// Provider-qualified model ref for tasks without their own `model:`;
@@ -28,11 +29,25 @@ final class SettingsStore {
         workspacePath = defaults.string(forKey: Self.workspacePathKey) ?? ""
         showRunningIndicator = defaults.object(forKey: Self.showRunningIndicatorKey) as? Bool ?? true
         defaultModel = defaults.string(forKey: Self.defaultModelKey)
-        let stored = defaults.dictionary(forKey: Self.slotAssignmentsKey) as? [String: String] ?? [:]
-        slotAssignments = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
-            Int(key).map { ($0, value) }
-        })
+        let stored = defaults.dictionary(forKey: Self.shortcutsKey) as? [String: String] ?? [:]
+        shortcuts = stored.compactMapValues(Shortcut.init(rawValue:))
+        migrateLegacySlotsIfNeeded()
         prepareWorkspace()
+    }
+
+    /// One-shot upgrade from the fixed ⌃⌥1–9 slots to recorded shortcuts, so
+    /// existing assignments keep working with the same keystrokes.
+    private func migrateLegacySlotsIfNeeded() {
+        guard defaults.object(forKey: Self.shortcutsKey) == nil,
+              let legacy = defaults.dictionary(forKey: Self.legacySlotAssignmentsKey) as? [String: String]
+        else { return }
+
+        for (slotKey, path) in legacy {
+            guard let slot = Int(slotKey), let shortcut = Shortcut.legacySlot(slot) else { continue }
+            shortcuts[path] = shortcut
+        }
+        persistShortcuts()
+        defaults.removeObject(forKey: Self.legacySlotAssignmentsKey)
     }
 
     var workspaceURL: URL {
@@ -89,44 +104,41 @@ final class SettingsStore {
         defaults.set(enabled, forKey: Self.showRunningIndicatorKey)
     }
 
-    // MARK: - Slot assignments
+    // MARK: - Shortcuts
 
-    func assignment(for slot: Int) -> String? {
-        slotAssignments[slot]
+    func shortcut(for path: String) -> Shortcut? {
+        shortcuts[path]
     }
 
-    func slot(for path: String) -> Int? {
-        slotAssignments.first(where: { $0.value == path })?.key
+    func taskPath(for shortcut: Shortcut) -> String? {
+        shortcuts.first(where: { $0.value == shortcut })?.key
     }
 
-    /// Assigns `path` to `slot` (taking the slot over from any other task);
-    /// `nil` unassigns the task from all slots.
-    func assign(_ path: String, to slot: Int?) {
-        for (existingSlot, existingPath) in slotAssignments where existingPath == path {
-            slotAssignments.removeValue(forKey: existingSlot)
+    /// Gives `shortcut` to `path`, taking it over from whichever task held it.
+    func setShortcut(_ shortcut: Shortcut, for path: String) {
+        for (existingPath, existing) in shortcuts where existing == shortcut && existingPath != path {
+            shortcuts.removeValue(forKey: existingPath)
         }
-        if let slot {
-            slotAssignments[slot] = path
-        }
-        persistSlots()
+        shortcuts[path] = shortcut
+        persistShortcuts()
+    }
+
+    func clearShortcut(for path: String) {
+        guard shortcuts.removeValue(forKey: path) != nil else { return }
+        persistShortcuts()
     }
 
     func handleTaskRenamed(from: String, to: String) {
-        for (slot, path) in slotAssignments where path == from {
-            slotAssignments[slot] = to
-        }
-        persistSlots()
+        guard let shortcut = shortcuts.removeValue(forKey: from) else { return }
+        shortcuts[to] = shortcut
+        persistShortcuts()
     }
 
     func handleTaskDeleted(_ path: String) {
-        for (slot, existing) in slotAssignments where existing == path {
-            slotAssignments.removeValue(forKey: slot)
-        }
-        persistSlots()
+        clearShortcut(for: path)
     }
 
-    private func persistSlots() {
-        let stored = Dictionary(uniqueKeysWithValues: slotAssignments.map { (String($0.key), $0.value) })
-        defaults.set(stored, forKey: Self.slotAssignmentsKey)
+    private func persistShortcuts() {
+        defaults.set(shortcuts.mapValues(\.rawValue), forKey: Self.shortcutsKey)
     }
 }

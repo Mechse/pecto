@@ -68,20 +68,7 @@ final class RunCoordinator {
         self.providers = providers
     }
 
-    func fire(slot: Int) {
-        guard let path = settings.assignment(for: slot) else {
-            report(
-                path: "",
-                kind: .refusal,
-                title: "Nothing on ⌃⌥\(slot)",
-                body: "That shortcut has no task yet. Open Pecto to assign one."
-            )
-            return
-        }
-        run(path: path)
-    }
-
-    /// Shared by shortcut slots and the editor's Run button. Re-triggering
+    /// Shared by global shortcuts and the editor's Run button. Re-triggering
     /// the task that is awaiting an empty-clipboard confirmation IS the
     /// confirmation; triggering any other task cancels the pending one.
     func run(path: String) {

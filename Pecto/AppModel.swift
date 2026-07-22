@@ -88,10 +88,11 @@ final class AppModel {
             self?.historyVersion += 1
         }
         let runner = self.runner
-        let hotkeys = HotkeyManager { slot in
-            runner.fire(slot: slot)
+        let hotkeys = HotkeyManager { shortcut in
+            guard let path = settings.taskPath(for: shortcut) else { return }
+            runner.run(path: path)
         }
-        hotkeys.register()
+        hotkeys.sync(Set(settings.shortcuts.values))
         self.hotkeys = hotkeys
 
         indicator = NotchIndicatorController(
@@ -118,6 +119,63 @@ final class AppModel {
             guard let self else { return }
             await MainActor.run { self.storedKeyProviders = stored }
         }
+    }
+
+    // MARK: - Shortcuts
+
+    /// What the recorder must tell the user after a keystroke is committed.
+    enum ShortcutAssignmentResult: Equatable {
+        case assigned
+        /// The shortcut was taken over from another task.
+        case replaced(taskName: String)
+        /// macOS or another app owns the combo; nothing changed.
+        case unavailable
+    }
+
+    @discardableResult
+    func setShortcut(_ shortcut: Shortcut, for path: String) -> ShortcutAssignmentResult {
+        let previousOwner = settings.taskPath(for: shortcut).flatMap { $0 == path ? nil : $0 }
+        let previousOwnShortcut = settings.shortcut(for: path)
+
+        settings.setShortcut(shortcut, for: path)
+        let failed = hotkeys?.sync(Set(settings.shortcuts.values)) ?? []
+        guard !failed.contains(shortcut) else {
+            // Roll back: the OS refused, so the old state is still the truth.
+            if let previousOwner {
+                settings.setShortcut(shortcut, for: previousOwner)
+            } else {
+                settings.clearShortcut(for: path)
+            }
+            if let previousOwnShortcut {
+                settings.setShortcut(previousOwnShortcut, for: path)
+            }
+            hotkeys?.sync(Set(settings.shortcuts.values))
+            return .unavailable
+        }
+
+        if let previousOwner {
+            return .replaced(taskName: String(previousOwner.dropLast(3)))
+        }
+        return .assigned
+    }
+
+    func clearShortcut(for path: String) {
+        settings.clearShortcut(for: path)
+        hotkeys?.sync(Set(settings.shortcuts.values))
+    }
+
+    /// Releases the global hotkeys while the recorder captures keystrokes, so
+    /// an existing Pecto shortcut can be re-recorded without firing a run.
+    func suspendHotkeys() {
+        hotkeys?.suspend()
+    }
+
+    func resumeHotkeys() {
+        hotkeys?.resume()
+    }
+
+    private func syncHotkeys() {
+        hotkeys?.sync(Set(settings.shortcuts.values))
     }
 
     // MARK: - Routing
@@ -375,6 +433,7 @@ final class AppModel {
         run {
             try settings.workspace.deleteTask(selectedPath)
             settings.handleTaskDeleted(selectedPath)
+            syncHotkeys()
             history?.deleteTask(taskPath: selectedPath)
             historyVersion += 1
             select(nil)

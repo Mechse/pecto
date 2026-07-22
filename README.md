@@ -2,7 +2,7 @@
 
 Automate repetitive work by describing it in a plain markdown file — now as a **native macOS menu-bar app**.
 
-A task is one `.md` file: a small settings block (`name`, `description`) followed by plain-language instructions with a single `{{clipboard}}` input. Map a task to a global shortcut (⌃⌥1–9), copy some text anywhere, press the shortcut — Pecto runs the task in the background against the Anthropic API and puts the result back on your clipboard, then notifies you. Paste away.
+A task is one `.md` file: a small settings block (`name`, `description`) followed by plain-language instructions with a single `{{clipboard}}` input. Give a task a global shortcut you record yourself, copy some text anywhere, press the shortcut — Pecto runs the task in the background against the Anthropic API and puts the result back on your clipboard, then notifies you. Paste away.
 
 ```markdown
 ---
@@ -39,7 +39,7 @@ open ~/Library/Developer/Xcode/DerivedData/Pecto-*/Build/Products/Debug/Pecto.ap
 
 Launch via `open` (not the bare binary) or notifications won't register. First launch: allow notifications, and Pecto creates `~/Documents/Pecto` seeded with two sample tasks.
 
-Then: menu-bar icon → **Open Pecto** → select `improve-email` → pick a shortcut slot (e.g. ⌃⌥1) → Settings → paste your API key. Copy a rough email anywhere, press ⌃⌥1, wait for the notification, paste.
+Then: menu-bar icon → **Open Pecto** → select `improve-email` → **Configure** → record a shortcut (e.g. ⌃⌥1) → Settings → paste your API key. Copy a rough email anywhere, press your shortcut, wait for the notification, paste.
 
 ## Cutting a release
 

@@ -20,7 +20,7 @@ struct GeneralSettingsView: View {
             }
 
             Section("Shortcuts") {
-                Text("⌃⌥1 through ⌃⌥9 work system-wide. Assign a task to a slot in the editor, copy some text anywhere, press the shortcut, and paste the result.")
+                Text("Give any task its own shortcut in its configuration — click Record and press the keys you want. It works system-wide: copy some text anywhere, press the shortcut, paste the result.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

@@ -66,8 +66,8 @@ struct TaskListView: View {
                         .help(task.error ?? "")
                 }
                 Spacer()
-                if let slot = model.settings.slot(for: task.path) {
-                    Text("⌃⌥\(slot)")
+                if let shortcut = model.settings.shortcut(for: task.path) {
+                    Text(shortcut.display)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }

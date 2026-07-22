@@ -47,9 +47,9 @@ struct TaskConfigView: View {
             }
 
             Section {
-                SlotPickerView(model: model, task: task)
+                ShortcutRecorderView(model: model, task: task)
             } footer: {
-                Text("A global shortcut that runs this task on your clipboard from anywhere.")
+                Text("A global shortcut that runs this task on your clipboard from anywhere. Click and press the keys you want.")
             }
 
             Section {

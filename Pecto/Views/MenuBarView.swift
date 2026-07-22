@@ -5,17 +5,19 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        let assignments = model.settings.slotAssignments.sorted { $0.key < $1.key }
+        let assignments = model.settings.shortcuts
+            .map { (path: $0.key, shortcut: $0.value) }
+            .sorted { displayName(for: $0.path) < displayName(for: $1.path) }
 
         if assignments.isEmpty {
             Text("No shortcuts assigned yet")
         } else {
-            ForEach(assignments, id: \.key) { slot, path in
+            ForEach(assignments, id: \.path) { path, shortcut in
                 let running = model.runner.runningPaths.contains(path)
                 Button {
-                    model.runner.fire(slot: slot)
+                    model.runner.run(path: path)
                 } label: {
-                    Text("⌃⌥\(slot)   \(displayName(for: path))\(running ? "  — running…" : "")")
+                    Text("\(shortcut.display)   \(displayName(for: path))\(running ? "  — running…" : "")")
                 }
                 .disabled(running)
             }
