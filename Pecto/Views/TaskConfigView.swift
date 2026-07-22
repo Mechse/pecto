@@ -8,6 +8,10 @@ struct TaskConfigView: View {
     @Bindable var model: AppModel
     @State private var name = ""
     @State private var descriptionText = ""
+    /// The task the fields above were loaded from. A commit only applies while
+    /// it still matches the selection — switching tasks pops this view, and its
+    /// `onDisappear` must not write task A's name onto task B.
+    @State private var loadedPath: String?
     @State private var isConfirmingDelete = false
     @FocusState private var focusedField: Field?
 
@@ -105,20 +109,23 @@ struct TaskConfigView: View {
     }
 
     private func reload() {
+        loadedPath = model.selectedPath
         name = String((model.selectedPath ?? "").dropLast(3))
         descriptionText = model.document?.frontmatter.description ?? ""
     }
 
     private func commitName() {
-        guard let selectedPath = model.selectedPath else { return }
+        guard let selectedPath = model.selectedPath, selectedPath == loadedPath else { return }
         if name != String(selectedPath.dropLast(3)) {
             model.renameSelectedTask(to: name)
         }
         // Reflect the outcome — slugified on success, reverted on failure.
+        loadedPath = model.selectedPath
         name = String((model.selectedPath ?? "").dropLast(3))
     }
 
     private func commitDescription() {
+        guard model.selectedPath == loadedPath else { return }
         model.updateDescription(descriptionText)
         descriptionText = model.document?.frontmatter.description ?? ""
     }

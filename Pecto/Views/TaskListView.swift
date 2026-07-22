@@ -70,6 +70,11 @@ struct TaskListView: View {
                     Text(shortcut.display)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "keyboard.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("No shortcut — this task can only be run from this window.")
                 }
             }
             Text(task.description ?? task.error ?? "")

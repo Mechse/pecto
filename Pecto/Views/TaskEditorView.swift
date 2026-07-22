@@ -8,6 +8,7 @@ struct TaskEditorView: View {
     @AppStorage("runsPaneOpen") private var isRunsOpen = false
     @AppStorage("runsPaneHeight") private var runsPaneHeight = 240.0
     @AppStorage(EditorFont.sizeKey) private var fontSize = EditorFont.defaultSize
+    @AppStorage("dismissedShortcutHints") private var dismissedShortcutHints = ""
     @State private var dragBaseHeight: Double?
 
     var body: some View {
@@ -30,6 +31,10 @@ struct TaskEditorView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                     .background(.yellow.opacity(0.15))
+            }
+
+            if needsShortcutHint(for: task) {
+                shortcutHint(for: task)
             }
 
             TextEditor(text: $model.draft)
@@ -97,6 +102,47 @@ struct TaskEditorView: View {
                 .help("Name, description, shortcut, model and deletion for this task")
             }
         }
+    }
+
+    /// A task without a global shortcut can only be run from this window, which is
+    /// easy to miss — warn once per task until it gets a shortcut or is dismissed.
+    private func needsShortcutHint(for task: TaskSummary) -> Bool {
+        model.settings.shortcut(for: task.path) == nil
+            && !dismissedPaths.contains(task.path)
+    }
+
+    private func shortcutHint(for task: TaskSummary) -> some View {
+        HStack(spacing: 8) {
+            Label(
+                "No shortcut — this task can only be run from this window.",
+                systemImage: "keyboard.badge.exclamationmark"
+            )
+            .font(.callout)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button("Set Shortcut…") { detailPath.append(.config) }
+            Button {
+                dismissShortcutHint(for: task)
+            } label: {
+                Label("Dismiss", systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("Hide this notice for \(task.name ?? task.path)")
+        }
+        .padding(10)
+        .background(.orange.opacity(0.12))
+    }
+
+    private var dismissedPaths: Set<String> {
+        Set(dismissedShortcutHints.split(separator: "\n").map(String.init))
+    }
+
+    private func dismissShortcutHint(for task: TaskSummary) {
+        dismissedShortcutHints = dismissedPaths
+            .union([task.path])
+            .sorted()
+            .joined(separator: "\n")
     }
 
     /// Drag handle between the editor and the runs panel; height persists via AppStorage.
