@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <!-- Menu-bar mark: the two sparkles from appicon.svg, without the rounded
+       square, re-laid-out for an 18pt status item. The arms are slightly
+       fatter than the Dock icon's so they survive at 16px. Both shapes are
+       solid black — the app renders them as template images and macOS (or
+       MenuBarIcon.swift, for the running state) supplies the real colour.
+       scripts/make-menubar-icon.sh exports the asset PNGs from this file;
+       the ids below are the export handles, do not rename them. -->
+
+  <!-- Both stars keep the Dock icon's 172:256 width-to-height ratio. The
+       control points sit 66% of the way from each tip to the centre (the Dock
+       icon uses 67.2%); the small difference thickens the arms just enough to
+       stay solid at 16px. -->
+
+  <g id="glyph">
+    <path fill="#000"
+          d="M11.5 8
+             C11.5 16.58 11.5 16.58 20.2 21
+             C11.5 25.42 11.5 25.42 11.5 34
+             C11.5 25.42 11.5 25.42 2.8 21
+             C11.5 16.58 11.5 16.58 11.5 8 Z"/>
+  </g>
+
+  <g id="accent">
+    <path fill="#000"
+          d="M27 2.1
+             C27 7.31 27 7.31 32.27 10
+             C27 12.69 27 12.69 27 17.9
+             C27 12.69 27 12.69 21.73 10
+             C27 7.31 27 7.31 27 2.1 Z"/>
+  </g>
+</svg>

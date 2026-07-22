@@ -10,7 +10,8 @@ struct PectoApp: App {
         MenuBarExtra {
             MenuBarView(model: model)
         } label: {
-            Image(systemName: model.runner.isRunning ? "wand.and.rays" : "wand.and.stars")
+            Image(nsImage: model.runner.isRunning ? MenuBarIcon.running : MenuBarIcon.idle)
+                .accessibilityLabel(model.runner.isRunning ? "Pecto — running" : "Pecto")
         }
 
         Window("Pecto", id: "main") {
