@@ -59,6 +59,11 @@ export const INSTALL_STEPS = [
 export const INSTALL_NOTE =
   "Pecto is not yet notarized by Apple, so macOS blocks it the first time. You only do this once. Notarized builds are coming — until then you can also build from source.";
 
+// Apple's own guide; covers macOS 15 Sequoia and later via its version dropdown.
+export const GATEKEEPER_HELP_URL =
+  "https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac";
+export const GATEKEEPER_HELP_LABEL = "macOS blocked it? How to allow Pecto";
+
 export const COMPATIBILITY = [
   { label: "macOS", value: "15 Sequoia or later" },
   { label: "Chip", value: "Apple Silicon (M1 or later)" },

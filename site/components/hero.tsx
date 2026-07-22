@@ -1,6 +1,11 @@
 import { TaskDemo } from "@/components/task-demo";
 import { buttonVariants } from "@/components/ui/button";
-import { DESCRIPTION, TAGLINE } from "@/lib/config";
+import {
+  DESCRIPTION,
+  GATEKEEPER_HELP_LABEL,
+  GATEKEEPER_HELP_URL,
+  TAGLINE,
+} from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 export function Hero({
@@ -50,6 +55,14 @@ export function Hero({
         <p className="mt-4 font-mono text-xs text-muted-foreground">
           macOS 15+ · Apple Silicon · Free &amp; open source
         </p>
+        <a
+          href={GATEKEEPER_HELP_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block rounded-md font-mono text-xs text-muted-foreground underline underline-offset-4 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {GATEKEEPER_HELP_LABEL}
+        </a>
       </div>
       <div className="flex justify-center sm:justify-start lg:justify-end">
         <TaskDemo />
